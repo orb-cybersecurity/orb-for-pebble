@@ -1,0 +1,4 @@
+[submodule "mobileapp"]
+	path = mobileapp
+	url = https://github.com/coredevices/mobileapp.git
+	ignore = dirty
