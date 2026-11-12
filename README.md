@@ -84,4 +84,10 @@ If `apply.py` or the build fails, the message names what changed upstream.
 
 ## License
 
-GPL-3.0, the same as Core's app. See `LICENSE`.
+Orb for Pebble is free software under the GNU General Public License, version 3
+(SPDX: GPL-3.0-only), the license of Core's app, which it is derived from. See `LICENSE`.
+
+Core's code is copyright Core Devices and its contributors. The files in this repository are
+copyright the Orb for Pebble authors and are offered under the same license. Core also sells
+its code under a separate commercial license; that offer is Core's alone and does not extend
+to Orb.

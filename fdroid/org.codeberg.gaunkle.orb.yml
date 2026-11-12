@@ -1,0 +1,28 @@
+# Draft build recipe for F-Droid's fdroiddata repository. Kept here so it is reviewed and
+# tested with the code; the copy that counts is the one merged into fdroiddata.
+Categories:
+  - Connectivity
+License: GPL-3.0-only
+SourceCode: https://codeberg.org/Gaunkle/orb-for-pebble
+IssueTracker: https://codeberg.org/Gaunkle/orb-for-pebble/issues
+
+AutoName: Orb
+
+RepoType: git
+Repo: https://codeberg.org/Gaunkle/orb-for-pebble.git
+
+Builds:
+  - versionName: 1.18.0.1-orb1
+    versionCode: 118000011
+    commit: 1.18.0.1-orb1
+    subdir: mobileapp/androidApp
+    submodules: true
+    gradle:
+      - yes
+    prebuild: python3 ../../apply.py
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+UpdateCheckData: version.properties|versionCode=(\d+)|.|versionName=(.+)
+CurrentVersion: 1.18.0.1-orb1
+CurrentVersionCode: 118000011
