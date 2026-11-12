@@ -133,12 +133,17 @@ def check_replaced() -> None:
         raise ApplyError("overlay is missing replacements for:\n  " + "\n  ".join(missing))
 
 
-def edit(path: str, pattern: str, replacement: str, expect: int = 1) -> None:
-    """Regex substitution in one file that must match exactly `expect` times."""
+def edit(path: str, pattern: str, replacement: str, expect: int | tuple[int, ...] = 1) -> None:
+    """Regex substitution in one file that must match exactly `expect` times.
+
+    `expect` may list several acceptable counts, for text that F-Droid's build tooling has
+    sometimes already removed by the time this runs.
+    """
+    allowed = (expect,) if isinstance(expect, int) else expect
     file = APP / path
     text, count = re.subn(pattern, replacement, file.read_text(), flags=re.MULTILINE)
-    if count != expect:
-        raise ApplyError(f"{path}: expected {expect} match(es) of {pattern!r}, found {count}")
+    if count not in allowed:
+        raise ApplyError(f"{path}: expected {allowed} match(es) of {pattern!r}, found {count}")
     file.write_text(text)
 
 
@@ -250,10 +255,12 @@ def apply(extra_abis: list[str]) -> None:
         f'<string name="app_name">{APP_LABEL}</string>',
     )
     # A checkout without a keystore packages the release unsigned, for stores that sign.
+    # F-Droid's tooling deletes the signing lines itself before this script runs.
     edit(
         "androidApp/build.gradle.kts",
         r'signingConfig = signingConfigs\.getByName\("release"\)',
         'signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile?.exists() == true }',
+        expect=(0, 1),
     )
     edit(
         "androidApp/build.gradle.kts",
