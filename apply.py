@@ -208,6 +208,8 @@ REMOVED = [
     "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreKnownWatch.kt",
     "util/src/commonMain/kotlin/coredevices/database/UserConfig.kt",
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/PermissionRequestHandler.kt",
+    # The in-app web page viewer, last used for Core's help site (see open_help_in_browser()).
+    "util/src/commonMain/kotlin/coredevices/ui/GenericWebViewScreen.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -1626,6 +1628,28 @@ def harden_release_manifest() -> None:
     edit(deep_links, r"^        private const val GITHUB_OAUTH_CALLBACK_(HOST|PATH): String = .*\n", "", expect=2)
 
 
+def open_help_in_browser() -> None:
+    """Open Core's getting-started guide in the browser instead of inside the app.
+
+    The guide is an Intercom help centre. In the browser, the user's own protections apply and
+    Orb embeds no third-party help desk; the link goes straight to the article instead of
+    through Core's link shortener. The in-app page viewer had no other use and is removed.
+    """
+    settings_screen = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt"
+    edit(settings_screen,
+         r"^([ \t]*)nav\.navigateTo\(CommonRoutes\.TroubleshootingRoute\)\n",
+         r'\1// No browser installed: nothing to open it in.\n'
+         r'\1runCatching { uriHandler.openUri("https://help.repebble.com/en/articles/14474380-pebble-watch-getting-started-guide") }\n')
+    edit(settings_screen,
+         r"^(    val scope = rememberCoroutineScope\(\)\n    val appContext = koinInject<AppContext>\(\)\n)",
+         r"\1    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current\n")
+    nav_host = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt"
+    remove_kotlin_block(nav_host, r"^[ \t]*composable<CommonRoutes\.TroubleshootingRoute> \{")
+    edit(nav_host, r"^import coredevices\.ui\.GenericWebViewScreen\n", "")
+    edit("util/src/commonMain/kotlin/CommonRoutes.kt",
+         r"^    @Serializable\n    data object TroubleshootingRoute : CoreRoute\n\n", "")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -2059,6 +2083,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_sync_manager()
     remove_dead_leftovers()
     harden_release_manifest()
+    open_help_in_browser()
 
     if extra_abis:
         edit(
