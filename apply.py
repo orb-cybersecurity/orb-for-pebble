@@ -34,8 +34,6 @@ APP_LABEL = "Orb"
 REPLACED = {
     "util/src/androidMain/kotlin/AppUpdate.android.kt":
         "aee44639f643a51315264b1cb1d682bbd994711f3e94f68bcda519be60b856ec",
-    "util/src/androidMain/kotlin/coredevices/analytics/Analytics.android.kt":
-        "3fedd71bd66e151231851313df2970364e4c2726e065649ea8f007a3b9274ddc",
     "util/src/androidMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.android.kt":
         "4b95f649c8dd2a5e2e3c6e3a19f9c05836d64315d0a75f8aa096201ff5819d36",
     "util/src/commonMain/kotlin/theme/Theme.kt":
@@ -182,6 +180,13 @@ REMOVED = [
     "util/src/commonMain/kotlin/coredevices/api/ApiClient.kt",
     "util/src/commonMain/kotlin/coredevices/api/ApiAuthException.kt",
     "pebble/src/commonMain/kotlin/coredevices/pebble/plugin/HostedPluginOAuthApi.kt",
+    # Core's app analytics, which had no backend in Orb (see remove_analytics()).
+    "util/src/commonMain/kotlin/coredevices/analytics",
+    "util/src/androidMain/kotlin/coredevices/analytics",
+    "util/src/iosMain/kotlin/coredevices/analytics",
+    "util/src/commonTest/kotlin/coredevices/analytics",
+    "util/src/commonMain/kotlin/coredevices/util/transcription/TranscriptionAnalytics.kt",
+    "util/src/commonTest/kotlin/coredevices/util/transcription/TranscriptionAnalyticsTest.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -1395,10 +1400,6 @@ def remove_core_account() -> None:
          r"            \.collectAsState\(Firebase\.auth\.currentUser\.toUserProps\(\)\)\n",
          "        val user: UserProps? = null\n")
 
-    analytics = "util/src/commonMain/kotlin/coredevices/analytics/CoreAnalytics.kt"
-    edit(analytics, r"^import (coredevices\.util\.emailOrNull|dev\.gitlive\.firebase\.(Firebase|auth\.auth))\n", "", expect=3)
-    edit(analytics, r'^[ \t]*HeartbeatMetric\("core_user_id", Firebase\.auth\.currentUser\?\.emailOrNull \?: "<none>"\) \+\n', "")
-
 
 def remove_firebase() -> None:
     """Remove the last uses of Firebase, so Orb builds without it or a stand-in for it.
@@ -1435,6 +1436,76 @@ def remove_firebase() -> None:
         "util/src/commonMain/kotlin/coredevices/api/EngDashOtaApi.kt",
         r"^class EngDashOtaApiImpl\(\n    private val baseUrl: String = BASE_URL,\n"
         r"\) : ApiClient\(CommonBuildKonfig\.USER_AGENT_VERSION\), EngDashOtaApi \{")
+
+
+def remove_analytics() -> None:
+    """Remove Core's app analytics.
+
+    Events, heartbeat counters and watch-connection states were recorded and summarised for an
+    analytics backend Orb never had (its Android backend was Orb's do-nothing stand-in), so the
+    work only filled the phone's database. The analytics code goes (REMOVED), with Orb's
+    stand-in, and so do the database accessors of the three telemetry tables. The tables stay in
+    the database's schema, empty, so existing installs need no migration.
+    """
+    android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
+    edit(android_module, r"^import coredevices\.analytics\.createAndroidAnalytics\n", "")
+    edit(android_module, r"^    single \{ createAndroidAnalytics\(get\(\)\) \}\n", "")
+
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module, r"^import coredevices\.analytics\.(CoreAnalytics|HeartbeatMetricsSource|RealCoreAnalytics)\n", "", expect=3)
+    edit(util_module, r"^    single \{ RealCoreAnalytics\(.*\) \} bind CoreAnalytics::class\n", "")
+    edit(util_module,
+         r"^    single \{ get<CoreDatabase>\(\)\.(analyticsDao|memfaultChunkDao|analyticsHeartbeatDao)\(\) \}\n", "", expect=3)
+
+    database = "util/src/commonMain/kotlin/coredevices/database"
+    edit(f"{database}/CoreDatabase.kt",
+         r"^    abstract fun (analyticsDao\(\): HeartbeatStateDao|memfaultChunkDao\(\): MemfaultChunkDao"
+         r"|analyticsHeartbeatDao\(\): AnalyticsHeartbeatDao)\n",
+         "", expect=3)
+    for file, dao in (("HeartbeatEntity", "HeartbeatStateDao"), ("MemfaultChunkEntity", "MemfaultChunkDao"),
+                      ("AnalyticsHeartbeatEntity", "AnalyticsHeartbeatDao")):
+        remove_kotlin_block(f"{database}/{file}.kt", rf"^@Dao\ninterface {dao} \{{")
+
+    app_delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    edit(app_delegate, r"^import coredevices\.analytics\.(AnalyticsBackend|CoreAnalytics|setUser)\n", "", expect=3)
+    edit(app_delegate, r"^    private val (analyticsBackend: AnalyticsBackend|coreAnalytics: CoreAnalytics),\n", "", expect=2)
+    edit(app_delegate,
+         r"^                    add\(scope\.launch \{\n                        coreAnalytics\.processHeartbeat\(\)\n"
+         r"                    \}\)\n", "")
+
+    firmware_check = "pebble/src/commonMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateCheck.kt"
+    edit(firmware_check, r"^import coredevices\.analytics\.CoreAnalytics\n", "")
+    edit(firmware_check, r"^    private val coreAnalytics: CoreAnalytics,\n", "")
+
+    asr = "pebble/src/commonMain/kotlin/coredevices/pebble/services/RebbleAsrTranscription.kt"
+    edit(asr,
+         r"^import coredevices\.(analytics\.CoreAnalytics|util\.transcription\.logTranscription(Failure|Success))\n",
+         "", expect=3)
+    edit(asr, r"^    private val analytics: CoreAnalytics,\n", "")
+    edit(asr,
+         r"^        val result = transcribeInner\(encoderInfo, audioFrames\)\n"
+         r"        if \(result is TranscriptionResult\.Success && result\.words\.isNotEmpty\(\)\) \{\n"
+         r"(?:.*\n){3}        \}\n        return result\n",
+         "        return transcribeInner(encoderInfo, audioFrames)\n")
+    remove_kotlin_block(asr, r"^private fun TranscriptionResult\.failureReason\(\): String = when \(this\) \{")
+
+    deep_links = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt"
+    edit(deep_links, r"^import coredevices\.analytics\.CoreAnalytics\n", "")
+    edit(deep_links, r"^    private val analytics: CoreAnalytics,\n", "")
+    edit(deep_links, r'^[ \t]*analytics\.logEvent\("rebble\.logged-in"\)\n', "")
+
+    delegate = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleAppDelegate.kt"
+    edit(delegate,
+         r"^import coredevices\.analytics\.(CoreAnalytics|heartbeatWatchConnectGoalName|heartbeatWatchConnectedName)\n",
+         "", expect=3)
+    edit(delegate, r"^    private val analytics: CoreAnalytics,\n", "")
+    for flow in ("analyticsEvents", "heartbeatCounterIncrements"):
+        remove_kotlin_block(delegate, rf"^            GlobalScope\.launch \{{(?=\n                libPebble\.{flow}\.collect \{{)")
+    remove_kotlin_block(delegate,
+                        r"^                    watches\.groupBy \{ it\.watchType\(\) \}\.forEach \{(?= \(watchType, watches\) ->)")
+    remove_kotlin_block(delegate,
+                        r"^            GlobalScope\.launch \{(?=\n                libPebble\.watches\.collect \{ watches ->\n"
+                        r"                    val connected = watches\.filterIsInstance<CommonConnectedDevice>\(\)\.firstOrNull\(\))")
 
 
 def apply(extra_abis: list[str]) -> None:
@@ -1866,6 +1937,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_cloud_locker()
     remove_core_account()
     remove_firebase()
+    remove_analytics()
 
     if extra_abis:
         edit(
