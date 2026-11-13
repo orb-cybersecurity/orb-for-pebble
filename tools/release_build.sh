@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Build the signed APK set (.apks) that Accrescent accepts, from a clean overlay apply.
+# Build Orb's signed release APK from a clean overlay apply.
 #
-# Accrescent takes split APKs made by bundletool (>= 1.11.4) and signed with a non-debug key
-# (APK signature v2/v3), not a monolithic APK. This builds the release app bundle, turns it
-# into an APK set signed with the release key, and checks the result.
+# Builds the release app bundle and has bundletool turn it into one installable APK for both
+# ARM ABIs, signed with the release key (APK signature v2/v3). That APK is what goes on the
+# Codeberg release, where Obtainium picks it up. The script then checks it.
 #
-# Usage: tools/accrescent_build.sh [KEYSTORE] [ALIAS]
-#   KEYSTORE  default ~/.local/share/orb-release/orb-release.p12 (PKCS12)
+# Usage: tools/release_build.sh [KEYSTORE] [ALIAS]
+#   KEYSTORE  default ~/.local/share/orb-release/orb-release.p12 (PKCS12, mode 600)
 #   ALIAS     default orb
 # The keystore password is read from the terminal (or ORB_KS_PASS_FILE, a file holding it) and
-# never placed on a command line. Output: dist/orb-<version>.apks and a .txt with its SHA-256
-# and the signing certificate's SHA-256.
+# never placed on a command line. Output: dist/orb-<version>.apk, and dist/orb-<version>.txt
+# with its SHA-256 and the signing certificate's SHA-256.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 KS=${1:-$HOME/.local/share/orb-release/orb-release.p12}
@@ -20,8 +20,8 @@ BUNDLETOOL_SHA256=a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e
 export JAVA_HOME=${JAVA_HOME:-$HOME/.local/jdk/jdk-21.0.13+9}
 BT_DIR=$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}"/build-tools/*/ | sort -V | tail -1)
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/orb-tools
-log() { echo "accrescent_build: $*"; }
-die() { echo "accrescent_build: $*" >&2; exit 1; }
+log() { echo "release_build: $*"; }
+die() { echo "release_build: $*" >&2; exit 1; }
 
 [ -r "$KS" ] || die "keystore not found: $KS"
 [ "$(stat -c %a "$KS")" = 600 ] || die "$KS must be mode 600"
@@ -36,13 +36,13 @@ fi
 echo "$BUNDLETOOL_SHA256  $BT" | sha256sum -c --quiet - || { rm -f "$BT"; die "bundletool checksum mismatch"; }
 
 # Password into a private file for the duration of the run.
-PASSDIR=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/orb-ks.XXXXXX"); chmod 700 "$PASSDIR"
-trap 'rm -rf "$PASSDIR"' EXIT
+WORK=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/orb-release.XXXXXX"); chmod 700 "$WORK"
+trap 'rm -rf "$WORK"' EXIT
 if [ -n "${ORB_KS_PASS_FILE:-}" ]; then
-  install -m 600 "$ORB_KS_PASS_FILE" "$PASSDIR/pass"
+  install -m 600 "$ORB_KS_PASS_FILE" "$WORK/pass"
 else
   read -rsp "Keystore password for $KS: " P; echo
-  ( umask 077; printf '%s' "$P" > "$PASSDIR/pass" ); unset P
+  ( umask 077; printf '%s' "$P" > "$WORK/pass" ); unset P
 fi
 
 # Clean apply and build the release bundle.
@@ -55,37 +55,31 @@ AAB=mobileapp/androidApp/build/outputs/bundle/release/androidApp-release.aab
 [ -f "$AAB" ] || die "no bundle at $AAB"
 
 mkdir -p dist
-OUT="dist/orb-$VERSION.apks"
-rm -f "$OUT"
-"$JAVA_HOME/bin/java" -jar "$BT" build-apks --bundle="$AAB" --output="$OUT" \
-  --ks="$KS" --ks-key-alias="$ALIAS" \
-  --ks-pass="file:$PASSDIR/pass" --key-pass="file:$PASSDIR/pass"
+APK="dist/orb-$VERSION.apk"
+rm -f "$APK"
+"$JAVA_HOME/bin/java" -jar "$BT" build-apks --bundle="$AAB" --output="$WORK/universal.apks" \
+  --mode=universal --ks="$KS" --ks-key-alias="$ALIAS" \
+  --ks-pass="file:$WORK/pass" --key-pass="file:$WORK/pass"
+unzip -qq -p "$WORK/universal.apks" universal.apk > "$APK"
 
-# Checks: signed with a non-debug key (v2+), the expected package, 64-bit ARM present.
-CHECK=$(mktemp -d); trap 'rm -rf "$PASSDIR" "$CHECK"' EXIT
-unzip -qq "$OUT" -d "$CHECK"
-BASE="$CHECK/splits/base-master.apk"
-[ -f "$BASE" ] || die "no base-master split in $OUT"
-CERTS=$("$BT_DIR/apksigner" verify -v --print-certs "$BASE" 2>/dev/null) || die "signature verification failed"
+# Checks: signed (v2+) with a non-debug key, the expected package, both ARM ABIs, not debuggable.
 # (here-strings, not pipes: grep -q exiting early would trip pipefail)
+CERTS=$("$BT_DIR/apksigner" verify -v --print-certs "$APK" 2>/dev/null) || die "signature verification failed"
 grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' <<<"$CERTS" || die "not signed with v2"
 grep -qi 'CN=Android Debug' <<<"$CERTS" && die "signed with a debug certificate"
 CERT_SHA=$(sed -n 's/.*Signer: certificate SHA-256 digest: //p' <<<"$CERTS" | head -1)
-PKG=$("$BT_DIR/aapt2" dump packagename "$BASE")
+[ -n "$CERT_SHA" ] || die "no signing certificate found"
+PKG=$("$BT_DIR/aapt2" dump packagename "$APK")
 [ "$PKG" = com.orbcybersecurity.orb ] || die "unexpected package $PKG"
-[ -f "$CHECK/splits/base-arm64_v8a.apk" ] || die "no arm64-v8a split"
-for f in "$CHECK"/splits/*.apk; do
-  "$BT_DIR/apksigner" verify "$f" >/dev/null 2>&1 || die "split not verified: $(basename "$f")"
-done
-SIZE=$(stat -c %s "$OUT")
-SHA=$(sha256sum "$OUT" | cut -d' ' -f1)
+BADGING=$("$BT_DIR/aapt2" dump badging "$APK")
+grep -q "native-code: 'arm64-v8a' 'armeabi-v7a'" <<<"$BADGING" || die "expected arm64-v8a and armeabi-v7a native code"
+grep -q "application-debuggable" <<<"$BADGING" && die "debuggable APK"
 {
-  echo "file: $(basename "$OUT")"
   echo "version: $VERSION"
   echo "package: $PKG"
-  echo "size: $SIZE bytes"
-  echo "sha256: $SHA"
+  echo "file: $(basename "$APK")"
+  echo "size: $(stat -c %s "$APK") bytes"
+  echo "sha256: $(sha256sum "$APK" | cut -d' ' -f1)"
   echo "signing certificate sha256: $CERT_SHA"
-  echo "splits: $(ls "$CHECK"/splits | wc -l) APKs"
-} | tee "${OUT%.apks}.txt"
-log "done: $OUT"
+} | tee "dist/orb-$VERSION.txt"
+log "done: $APK"
