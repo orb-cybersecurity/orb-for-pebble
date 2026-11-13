@@ -192,6 +192,22 @@ REMOVED = [
     "util/src/androidMain/kotlin/coredevices/util/sync",
     "util/src/iosMain/kotlin/coredevices/util/sync",
     "util/src/commonTest/kotlin/coredevices/util/sync",
+    # Code left with nothing to call it once its features were removed
+    # (see remove_dead_leftovers()).
+    "util/src/commonMain/kotlin/coredevices/api/WisprFlow.kt",
+    "util/src/commonMain/kotlin/coredevices/util/integrations",
+    "util/src/androidMain/kotlin/coredevices/util/integrations",
+    "util/src/iosMain/kotlin/coredevices/util/integrations",
+    "util/src/commonMain/kotlin/coredevices/util/OAuthRedirectHandler.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/OAuthService.kt",
+    "util/src/commonMain/kotlin/coredevices/util/queue/PersistentQueueScheduler.kt",
+    "util/src/commonMain/kotlin/coredevices/util/queue/QueueTaskRepository.kt",
+    "util/src/commonMain/kotlin/coredevices/util/queue/RecoverableTaskException.kt",
+    "util/src/commonTest/kotlin/coredevices/util/queue",
+    "util/src/commonMain/kotlin/coredevices/util/transcription/NullTranscriptionService.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreKnownWatch.kt",
+    "util/src/commonMain/kotlin/coredevices/database/UserConfig.kt",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/PermissionRequestHandler.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -1544,6 +1560,46 @@ def remove_sync_manager() -> None:
          r"^        GlobalScope\.launch\(Dispatchers\.Default\) \{\n            syncManager\.resume\(\)\n        \}\n", "")
 
 
+def remove_dead_leftovers() -> None:
+    """Remove code that nothing calls any more (REMOVED), found with R8's list of unused classes.
+
+    - Message types of the removed cloud speech service, and an unused OAuth client.
+    - Core's OAuth integrations (they served the removed ring's apps): nothing asks for the
+      launcher, so the redirect handler only swallowed links whose host is "oauth". Such links now
+      reach the normal link handling, which ignores them.
+    - The persistent task queue behind the removed telemetry uploads. Its TaskStatus stays: the
+      kept sync-task table stores it.
+    - A null speech service, the Firestore watch record, the Firestore user config record and an
+      unused permission helper.
+    """
+    android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
+    edit(android_module, r"^import coredevices\.util\.integrations\.(AndroidOAuthLauncher|OAuthLauncher)\n", "", expect=2)
+    edit(android_module, r"^    singleOf\(::AndroidOAuthLauncher\) bind OAuthLauncher::class\n", "")
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module, r"^import coredevices\.util\.OAuthRedirectHandler\n", "")
+    edit(util_module, r"^    singleOf\(::OAuthRedirectHandler\)\n", "")
+
+    main_activity = "composeApp/src/androidMain/kotlin/coredevices/coreapp/MainActivity.kt"
+    edit(main_activity, r"^import coredevices\.util\.OAuthRedirectHandler\n", "")
+    edit(main_activity, r"^    private val oAuthRedirectHandler: OAuthRedirectHandler by inject\(\)\n", "")
+    # Unwrap `if (!oAuthRedirectHandler.handleOAuthRedirect(uri)) { ... }`: its body always runs now.
+    file = APP / main_activity
+    text = file.read_text()
+    head = "        if (!oAuthRedirectHandler.handleOAuthRedirect(uri)) {\n"
+    if text.count(head) != 1:
+        raise ApplyError(f"{main_activity}: expected one OAuth redirect check")
+    start = text.index(head)
+    close = kotlin_bracket_pairs(text)[start + len(head) - 2]
+    body = text[start + len(head):text.rfind("\n", 0, close) + 1]
+    body = "".join(line[4:] if line.startswith("            ") else line for line in body.splitlines(True))
+    end = text.index("\n", close) + 1
+    if text[close + 1:end].strip():
+        raise ApplyError(f"{main_activity}: the OAuth redirect check has an else branch")
+    file.write_text(text[:start] + body + text[end:])
+
+    remove_kotlin_block("util/src/commonMain/kotlin/coredevices/util/queue/QueueTask.kt", r"^interface QueueTask \{")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1975,6 +2031,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_firebase()
     remove_analytics()
     remove_sync_manager()
+    remove_dead_leftovers()
 
     if extra_abis:
         edit(
