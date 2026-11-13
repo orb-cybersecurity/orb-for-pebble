@@ -284,6 +284,16 @@ def apply(extra_abis: list[str]) -> None:
         'signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile?.exists() == true }',
         expect=(0, 1),
     )
+    # The Gradle plugin otherwise embeds a dependency list encrypted to a Google key.
+    edit(
+        "androidApp/build.gradle.kts",
+        r"^android \{\n",
+        "android {\n"
+        "    dependenciesInfo {\n"
+        "        includeInApk = false\n"
+        "        includeInBundle = false\n"
+        "    }\n",
+    )
     edit(
         "androidApp/build.gradle.kts",
         r'"proguard-rules\.pro"\)',
