@@ -1,0 +1,1 @@
+Pebble smartwatch companion without Google services; built from Core's app

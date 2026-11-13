@@ -1,0 +1,23 @@
+<p>Orb is an unofficial build of the Pebble companion app by Core Devices, for phones without Google Play services. GrapheneOS is the primary target. It is Core's app with the Google and binary-only parts removed and as little else changed as possible.</p>
+
+<p>Orb keeps the features of Core's app that don't need a Core account, for Pebble watches old and new.</p>
+
+<p><b>Removed compared with the official app</b></p>
+<ul>
+<li>Firebase (accounts, crash reporting), Google sign-in, Google Play in-app updates and push messaging</li>
+<li>Mixpanel analytics</li>
+<li>The prebuilt Cactus speech engine and the Index 01 ring's closed-source radio library</li>
+<li>The Google Fit fallback (Health Connect is still used where available)</li>
+</ul>
+
+<p>There is no Core account in Orb, so cloud locker sync, cloud speech recognition and submitting bug reports to Core are not available. Bug reports can be saved and shared as a file.</p>
+
+<p><b>Replaced</b></p>
+<ul>
+<li>Dictation uses the phone's speech recognition service: whichever recognizer app is installed and selected (Android 13 or newer).</li>
+<li>PebbleOS updates for watches made by Core come from Core's public releases on GitHub. Each release is checked (published SHA-256, board, version and CRCs) before it is offered. Older Pebble watches update from Rebble.</li>
+</ul>
+
+<p>Orb cannot be installed next to the official app or another build of it.</p>
+
+<p>Orb for Pebble is not affiliated with or endorsed by Core Devices. Pebble is a trademark of Core Devices LLC; the name is used only to say which watches the app works with.</p>
