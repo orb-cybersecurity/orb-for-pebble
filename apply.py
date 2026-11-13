@@ -1600,6 +1600,32 @@ def remove_dead_leftovers() -> None:
     remove_kotlin_block("util/src/commonMain/kotlin/coredevices/util/queue/QueueTask.kt", r"^interface QueueTask \{")
 
 
+def harden_release_manifest() -> None:
+    """Take out of the release what it should never have exported.
+
+    - Compose's PreviewActivity: a development tool, exported without a permission, that renders
+      any composable an intent names. It comes with the tooling library the modules declare for
+      every build; the release manifest drops it.
+    - The cloud.repebble.com/githubAuth link: the landing point of Core's GitHub sign-in, removed
+      with Core's account (remove_core_account()). Its handler did nothing, and Orb can't verify
+      Core's domain for app links anyway.
+    """
+    manifest = "androidApp/src/main/AndroidManifest.xml"
+    edit(manifest, r"^    </application>\n",
+         '        <activity\n'
+         '            android:name="androidx.compose.ui.tooling.PreviewActivity"\n'
+         '            tools:node="remove" />\n'
+         "    </application>\n")
+    edit(manifest,
+         r'^            <intent-filter android:autoVerify="true">\n(?:.*\n)*?'
+         r'                <data android:path="/githubAuth" />\n            </intent-filter>\n', "")
+
+    deep_links = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt"
+    remove_kotlin_block(deep_links, r'^            uri\.scheme == "https" \|\| uri\.scheme == "http" -> \{')
+    remove_kotlin_block(deep_links, r"^    private fun handleGithubAuth\(uri: Uri\): Boolean \{")
+    edit(deep_links, r"^        private const val GITHUB_OAUTH_CALLBACK_(HOST|PATH): String = .*\n", "", expect=2)
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -2032,6 +2058,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_analytics()
     remove_sync_manager()
     remove_dead_leftovers()
+    harden_release_manifest()
 
     if extra_abis:
         edit(
