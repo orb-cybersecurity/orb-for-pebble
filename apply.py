@@ -187,6 +187,11 @@ REMOVED = [
     "util/src/commonTest/kotlin/coredevices/analytics",
     "util/src/commonMain/kotlin/coredevices/util/transcription/TranscriptionAnalytics.kt",
     "util/src/commonTest/kotlin/coredevices/util/transcription/TranscriptionAnalyticsTest.kt",
+    # Core's queue of background sync tasks, which nothing in Orb uses (see remove_sync_manager()).
+    "util/src/commonMain/kotlin/coredevices/util/sync",
+    "util/src/androidMain/kotlin/coredevices/util/sync",
+    "util/src/iosMain/kotlin/coredevices/util/sync",
+    "util/src/commonTest/kotlin/coredevices/util/sync",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -1508,6 +1513,37 @@ def remove_analytics() -> None:
                         r"                    val connected = watches\.filterIsInstance<CommonConnectedDevice>\(\)\.firstOrNull\(\))")
 
 
+def remove_sync_manager() -> None:
+    """Remove Core's queue of background sync tasks.
+
+    It retries queued work through WorkManager, but in Orb no task type has a handler and nothing
+    queues a task, so it only ever resumed an empty queue. The queue code goes (REMOVED), with its
+    database accessor; the table stays in the schema, empty, so existing installs need no
+    migration. Core's periodic background sync (SyncWorker) is separate and unchanged.
+    """
+    entity = "util/src/commonMain/kotlin/coredevices/database/SyncTaskEntity.kt"
+    remove_kotlin_block(entity, r"^@Dao\ninterface SyncTaskDao : SyncTaskStore \{")
+    edit(entity, r"^import coredevices\.util\.sync\.SyncTaskStore\n", "")
+    edit("util/src/commonMain/kotlin/coredevices/database/CoreDatabase.kt",
+         r"^    abstract fun syncTaskDao\(\): SyncTaskDao\n", "")
+
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module, r"^import coredevices\.(database\.SyncTaskDao|util\.sync\.SyncHandler|util\.sync\.SyncManager)\n",
+         "", expect=3)
+    edit(util_module, r"^    single \{ get<CoreDatabase>\(\)\.syncTaskDao\(\) \}\n", "")
+    edit(util_module, r"^    single \{ SyncManager\(.*\n", "")
+
+    android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
+    edit(android_module, r"^import coredevices\.util\.sync\.(AndroidSyncScheduler|SyncManager|SyncScheduler)\n", "", expect=3)
+    edit(android_module, r"^    single<SyncScheduler> \{ AndroidSyncScheduler\(.*\n", "")
+
+    app_delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    edit(app_delegate, r"^import coredevices\.util\.sync\.SyncManager\n", "")
+    edit(app_delegate, r"^    private val syncManager: SyncManager,\n", "")
+    edit(app_delegate,
+         r"^        GlobalScope\.launch\(Dispatchers\.Default\) \{\n            syncManager\.resume\(\)\n        \}\n", "")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1938,6 +1974,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_core_account()
     remove_firebase()
     remove_analytics()
+    remove_sync_manager()
 
     if extra_abis:
         edit(
