@@ -23,7 +23,7 @@ comes first when the two pull in different directions.
 
 Orb is early in development and currently based on Core's 1.18.0.1 release.
 It has been tested on GrapheneOS with a real watch, and the first release is being
-prepared for Accrescent.
+submitted to Accrescent.
 
 Dictation does not work yet. Orb hands it to the phone's speech recognition
 service, and no free recognizer currently transcribes the watch's audio:
@@ -89,9 +89,14 @@ uploads. Data the watch offers for them is dropped on the phone.
 
 ## Installing
 
-Until a release is published, build from source. Distribution is planned for
-Accrescent first and F-Droid later; F-Droid requires a period of active
-development before inclusion.
+Orb is distributed through [Accrescent](https://accrescent.app), the supported way
+to install it. On GrapheneOS, Accrescent can be installed from the GrapheneOS App
+Store. Accrescent installs and updates apps without Google Play services and verifies
+that every update is signed by the same developer key. Orb's first release is being
+submitted there; until it is listed, build from source.
+
+F-Droid will follow once Orb meets F-Droid's requirement for a period of active
+development.
 
 Uninstall Core's official app or another fork before installing Orb. They declare
 the same PebbleKit providers, so Android cannot install them alongside Orb.
