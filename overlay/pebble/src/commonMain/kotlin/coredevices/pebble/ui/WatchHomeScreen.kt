@@ -293,6 +293,31 @@ fun WatchHomeScreen(
             }
         }
         val deepLinkHandler: PebbleDeepLinkHandler = koinInject()
+        val pendingBootConfig by deepLinkHandler.pendingBootConfig.collectAsState()
+        pendingBootConfig?.let { pending ->
+            AlertDialog(
+                onDismissRequest = deepLinkHandler::dismissPendingBootConfig,
+                title = { Text("Use a new Rebble account server?") },
+                text = {
+                    Text(
+                        "A link asks Orb to sign in to the Rebble services at ${pending.host}. " +
+                                "That server would provide your account, app store locker and " +
+                                "Rebble dictation, and the identity your watchapps use. Allow " +
+                                "this only if you just signed in there yourself."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = deepLinkHandler::confirmPendingBootConfig) {
+                        Text("Allow")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = deepLinkHandler::dismissPendingBootConfig) {
+                        Text("Cancel")
+                    }
+                },
+            )
+        }
         val pendingFirmwareSideload by deepLinkHandler.pendingFirmwareSideload.collectAsState()
         pendingFirmwareSideload?.let { pending ->
             AlertDialog(

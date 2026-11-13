@@ -503,6 +503,146 @@ def remove_index_ring(settings_screen: str) -> None:
          r'^[ \t]*navBarNav\?\.let \{basicSettingsActionItem\(\n[ \t]*title = "Show Ring Onboarding",\n(?:.*\n)*?[ \t]*\) \},\n', "")
 
 
+def confirm_external_input() -> None:
+    """Links and files from outside the app take effect only after the user confirms them.
+
+    The boot-config confirmation dialog itself is in Orb's WatchHomeScreen.kt overlay.
+    """
+    handler = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt"
+    edit(handler,
+         r"^(    val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload\?>\n)",
+         r"\1\n"
+         "    /** A boot-config link waiting for the user to approve its host. */\n"
+         "    val pendingBootConfig: StateFlow<PendingBootConfig?>\n"
+         "    fun confirmPendingBootConfig()\n"
+         "    fun dismissPendingBootConfig()\n")
+    edit(handler,
+         r"^(data class PendingFirmwareSideload\(val file: Path, val fileName: String\)\n)",
+         r"\1" "data class PendingBootConfig(val path: String, val token: String, val host: String)\n")
+    edit(handler,
+         r"^(    private var reservedSideloadCount = 0\n)",
+         r"\1"
+         "    private val _pendingBootConfig = MutableStateFlow<PendingBootConfig?>(null)\n"
+         "    override val pendingBootConfig: StateFlow<PendingBootConfig?> = _pendingBootConfig.asStateFlow()\n"
+         "\n"
+         "    override fun confirmPendingBootConfig() {\n"
+         "        val pending = _pendingBootConfig.value ?: return\n"
+         "        _pendingBootConfig.value = null\n"
+         "        applyBootConfig(pending.token, pending.path)\n"
+         "    }\n"
+         "\n"
+         "    override fun dismissPendingBootConfig() {\n"
+         "        _pendingBootConfig.value = null\n"
+         "    }\n")
+    # handleBootConfig: validate, then park the link for confirmation; the body that used to
+    # run at once becomes applyBootConfig, called only from confirmPendingBootConfig.
+    edit(handler,
+         r"^(    private fun handleBootConfig\(path: String\?\): Boolean \{\n"
+         r"        logger\.d \{ \"handleBootConfig\(\)\" \}\n"
+         r"        val token = parseTokenFrom\(path\)\n"
+         r"        if \(path == null \|\| token == null\) \{\n"
+         r"            logger\.w\(\"couldn't find token\"\)\n"
+         r"            return false\n"
+         r"        \}\n)"
+         r"(        GlobalScope\.launch \{\n"
+         r"            pebbleAccount\.setToken\(token = token, bootUrl = path\)\n"
+         r"(?:            .*\n)*?"
+         r"        \}\n)"
+         r"        return true\n",
+         r"\1"
+         "        val host = bootConfigHost(path)\n"
+         "        if (host == null) {\n"
+         "            logger.w(\"boot config link is not an https URL with a host\")\n"
+         "            _snackBarMessages.tryEmit(\"Ignored a sign-in link that doesn't use https\")\n"
+         "            return false\n"
+         "        }\n"
+         "        _pendingBootConfig.value = PendingBootConfig(path = path, token = token, host = host)\n"
+         "        navigateToTab(PebbleNavBarRoutes.WatchesRoute)\n"
+         "        return true\n"
+         "    }\n"
+         "\n"
+         "    private fun applyBootConfig(token: String, path: String) {\n"
+         r"\2")
+    edit(handler,
+         r"^(        internal fun parseTokenFrom\(path: String\?\): String\? \{\n)",
+         "        /** Host (with any explicit port) of a boot-config link's URL; null unless it is https. */\n"
+         "        internal fun bootConfigHost(path: String): String? {\n"
+         "            val url = com.eygraber.uri.Uri.parseOrNull(path.removePrefix(\"/\")) ?: return null\n"
+         "            if (!url.scheme.equals(\"https\", ignoreCase = true)) return null\n"
+         "            val host = url.host?.takeIf { it.isNotBlank() } ?: return null\n"
+         "            return if (url.port > 0) \"$host:${url.port}\" else host\n"
+         "        }\n"
+         "\n"
+         r"\1")
+
+    # A watchapp file sent by another app: confirm, naming it, before anything is installed.
+    locker = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt"
+    edit(locker,
+         r"^(        val pendingAppSideload by deepLinks\.pendingAppSideload\.collectAsState\(\)\n)",
+         "        var externalSideload by remember { mutableStateOf<Pair<Path, String?>?>(null) }\n"
+         "        externalSideload?.let { (path, name) ->\n"
+         "            fun discard() {\n"
+         "                externalSideload = null\n"
+         "                SystemFileSystem.delete(path, mustExist = false)\n"
+         "            }\n"
+         "            androidx.compose.material3.AlertDialog(\n"
+         "                onDismissRequest = ::discard,\n"
+         "                title = { Text(if (name != null) \"Install watchapp?\" else \"Can't install this file\") },\n"
+         "                text = {\n"
+         "                    Text(\n"
+         "                        if (name != null) {\n"
+         "                            \"Another app sent \\\"$name\\\". Install it on your watch? Only \" +\n"
+         "                                \"install watchapps from sources you trust.\"\n"
+         "                        } else {\n"
+         "                            \"Another app sent a file that isn't a readable watchapp.\"\n"
+         "                        }\n"
+         "                    )\n"
+         "                },\n"
+         "                confirmButton = {\n"
+         "                    if (name != null) {\n"
+         "                        androidx.compose.material3.TextButton(onClick = {\n"
+         "                            externalSideload = null\n"
+         "                            sideload(path)\n"
+         "                        }) { Text(\"Install\") }\n"
+         "                    } else {\n"
+         "                        androidx.compose.material3.TextButton(onClick = ::discard) { Text(\"OK\") }\n"
+         "                    }\n"
+         "                },\n"
+         "                dismissButton = {\n"
+         "                    if (name != null) {\n"
+         "                        androidx.compose.material3.TextButton(onClick = ::discard) { Text(\"Cancel\") }\n"
+         "                    }\n"
+         "                },\n"
+         "            )\n"
+         "        }\n"
+         r"\1")
+    edit(locker,
+         r"^(            pendingAppSideload\?\.let \{\n"
+         r"                deepLinks\.consumePendingAppSideload\(\)\n)"
+         r"                sideload\(it\)\n",
+         r"\1"
+         "                // In the screen's scope: consuming the sideload restarts this effect.\n"
+         "                scope.launch {\n"
+         "                    val name = withContext(Dispatchers.IO) {\n"
+         "                        try {\n"
+         "                            PbwApp(it).info.let { info -> info.longName.ifBlank { info.shortName } }\n"
+         "                                .ifBlank { null }\n"
+         "                        } catch (e: Exception) {\n"
+         "                            null\n"
+         "                        }\n"
+         "                    }\n"
+         "                    externalSideload = it to name\n"
+         "                }\n")
+
+    # The preview stand-in implements the handler interface too.
+    edit("pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt",
+         r"^(        override val pendingAppSideload: StateFlow<Path\?> = MutableStateFlow\(null\)\n)",
+         r"\1"
+         "        override val pendingBootConfig: StateFlow<coredevices.pebble.PendingBootConfig?> = MutableStateFlow(null)\n"
+         "        override fun confirmPendingBootConfig() {}\n"
+         "        override fun dismissPendingBootConfig() {}\n")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -942,6 +1082,7 @@ def apply(extra_abis: list[str]) -> None:
     )
 
     remove_index_ring(settings_screen)
+    confirm_external_input()
 
     if extra_abis:
         edit(
