@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Orb's signed release APK from a clean overlay apply.
+# Build Orb's signed release APK from a clean checkout of the release tag.
 #
 # Builds the release app bundle and has bundletool turn it into one installable APK for both
 # ARM ABIs, signed with the release key (APK signature v2/v3). That APK is what goes on the
@@ -45,18 +45,21 @@ else
   ( umask 077; printf '%s' "$P" > "$WORK/pass" ); unset P
 fi
 
-# Clean apply and build the release bundle.
+# Only a clean checkout of the release tag is built: what ships is exactly what was pushed.
 cd "$ROOT"
-[ -z "$(git status --porcelain --untracked-files=no)" ] || log "warning: working tree has uncommitted changes"
-python3 apply.py --reset >/dev/null
+[ -z "$(git status --porcelain --untracked-files=all)" ] || die "working tree is not clean"
+[ -z "$(git ls-files --others -- overlay)" ] || die "untracked or ignored files in overlay/"
 VERSION=$(python3 -c 'import apply; print(apply.read_version()[0])')
+[ "$(git describe --exact-match --tags HEAD 2>/dev/null)" = "$VERSION" ] || die "HEAD is not tagged $VERSION"
+rm -f "dist/orb-$VERSION.apk" "dist/orb-$VERSION.txt"
+python3 apply.py --reset >/dev/null
+sh tools/check_deps.sh || die "the release build resolves dependencies Orb must not ship"
 ( cd mobileapp && ./gradlew -q :androidApp:bundleRelease --console=plain )
 AAB=mobileapp/androidApp/build/outputs/bundle/release/androidApp-release.aab
 [ -f "$AAB" ] || die "no bundle at $AAB"
 
 mkdir -p dist
-APK="dist/orb-$VERSION.apk"
-rm -f "$APK"
+APK="$WORK/orb.apk"
 "$JAVA_HOME/bin/java" -jar "$BT" build-apks --bundle="$AAB" --output="$WORK/universal.apks" \
   --mode=universal --ks="$KS" --ks-key-alias="$ALIAS" \
   --ks-pass="file:$WORK/pass" --key-pass="file:$WORK/pass"
@@ -74,6 +77,12 @@ PKG=$("$BT_DIR/aapt2" dump packagename "$APK")
 BADGING=$("$BT_DIR/aapt2" dump badging "$APK")
 grep -q "native-code: 'arm64-v8a' 'armeabi-v7a'" <<<"$BADGING" || die "expected arm64-v8a and armeabi-v7a native code"
 grep -q "application-debuggable" <<<"$BADGING" && die "debuggable APK"
+python3 tools/check_apk.py "$APK" || die "the APK contains code Orb must not ship"
+
+# All checks passed: only now does it get its release name.
+cp "$APK" "dist/.orb-$VERSION.apk.part"
+mv "dist/.orb-$VERSION.apk.part" "dist/orb-$VERSION.apk"
+APK="dist/orb-$VERSION.apk"
 {
   echo "version: $VERSION"
   echo "package: $PKG"
