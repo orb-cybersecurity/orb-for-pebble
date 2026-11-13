@@ -22,8 +22,8 @@ comes first when the two pull in different directions.
 ## Status
 
 Orb is early in development and currently based on Core's 1.18.0.1 release.
-It has been tested on GrapheneOS with a real watch, and the first release is being
-submitted to Accrescent.
+It has been tested on GrapheneOS with a real watch. The first release will be
+published on Codeberg as a signed APK, installed and updated with Obtainium.
 
 Dictation does not work yet. Orb hands it to the phone's speech recognition
 service, and no free recognizer currently transcribes the watch's audio:
@@ -89,11 +89,29 @@ uploads. Data the watch offers for them is dropped on the phone.
 
 ## Installing
 
-Orb is distributed through [Accrescent](https://accrescent.app), the supported way
-to install it. On GrapheneOS, Accrescent can be installed from the GrapheneOS App
-Store. Accrescent installs and updates apps without Google Play services and verifies
-that every update is signed by the same developer key. Orb's first release is being
-submitted there; until it is listed, build from source.
+Orb is installed and updated with [Obtainium](https://obtainium.imranr.dev),
+which fetches apps directly from their release pages, with no app store account and
+no Google Play services. Orb is not in the GrapheneOS App Store, Accrescent or Google
+Play.
+
+1. Install Obtainium from its
+   [releases page](https://github.com/ImranR98/Obtainium/releases) or from F-Droid.
+2. In Obtainium, tap **Add App** and enter
+   `https://codeberg.org/Orb-Cybersecurity/orb-for-pebble`.
+3. Tap **Add**, then **Install**. Android asks once to allow Obtainium to install
+   apps.
+
+Obtainium checks Codeberg for new releases and offers each update. Every release
+is a single APK signed with Orb's release key, and Android refuses an update signed
+with any other key, so a replaced download can't overwrite the installed app. Each
+release lists the signing certificate's SHA-256 fingerprint, so you can check the
+first install against it (for example with
+[AppVerifier](https://github.com/soupslurpr/AppVerifier)).
+
+You can also download the APK from
+[Codeberg Releases](https://codeberg.org/Orb-Cybersecurity/orb-for-pebble/releases)
+and install it by hand. Nothing will then tell you about updates. Until the first
+release is published, build from source (see below).
 
 F-Droid will follow once Orb meets F-Droid's requirement for a period of active
 development.
