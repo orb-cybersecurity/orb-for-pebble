@@ -10,6 +10,6 @@ trap 'rm -rf "$work"' EXIT
 mkdir "$work/metadata"
 sed -e "s#^Repo: .*#Repo: file://$root#" \
     -e "s#^\(    commit: \).*#\1$commit#" \
-    "$root/fdroid/org.codeberg.gaunkle.orb.yml" > "$work/metadata/org.codeberg.gaunkle.orb.yml"
+    "$root/fdroid/com.orbcybersecurity.orb.yml" > "$work/metadata/com.orbcybersecurity.orb.yml"
 cd "$work"
-exec fdroid scanner --exit-code -v org.codeberg.gaunkle.orb
+exec fdroid scanner --exit-code -v com.orbcybersecurity.orb

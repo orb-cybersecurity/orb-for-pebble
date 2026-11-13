@@ -26,7 +26,7 @@ APP = ROOT / "mobileapp"
 OVERLAY = ROOT / "overlay"
 MARKER = APP / "orb" / ".applied"
 
-APPLICATION_ID = "org.codeberg.gaunkle.orb"
+APPLICATION_ID = "com.orbcybersecurity.orb"
 APP_LABEL = "Orb"
 
 # Upstream files the overlay replaces outright, with the sha256 of the upstream version each
