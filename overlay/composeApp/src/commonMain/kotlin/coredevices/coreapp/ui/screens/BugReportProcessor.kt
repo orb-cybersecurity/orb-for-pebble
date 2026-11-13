@@ -154,8 +154,6 @@ class BugReportProcessor(
             // Lazy grab in case of init issues
             val transcriptionService = KoinPlatform.getKoin().get<HybridTranscriptionService>()
             val lastModel = transcriptionService.lastModelUsed
-            val isModelReady = transcriptionService.isModelReady
-            val configuredModel = transcriptionService.configuredModel
             val configuredMode = transcriptionService.configuredMode
             val configuredLanguage = transcriptionService.configuredLanguage ?: "Auto/Not specified"
             val lastSuccessfulMode = when (transcriptionService.lastSuccessfulMode) {
@@ -167,9 +165,7 @@ class BugReportProcessor(
             }
             "\nSTT Summary\n" +
                     "Configured mode: $configuredMode\n" +
-                    "Configured model: $configuredModel\n" +
                     "Configured language: $configuredLanguage\n" +
-                    "Is model ready: $isModelReady\n" +
                     "Last model used: $lastModel\n" +
                     "Last successful mode: $lastSuccessfulMode\n"
         } catch (e: Exception) {

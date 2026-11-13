@@ -32,8 +32,6 @@ APP_LABEL = "Orb"
 # Upstream files the overlay replaces outright, with the sha256 of the upstream version each
 # replacement was written against.
 REPLACED = {
-    "cactus/src/androidMain/kotlin/com/cactus/Cactus.kt":
-        "edd773e1d0f3c9aa8e278d0939d66078a620fb5024fc815fc26f5725372be328",
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/auth/GoogleAuthUtil.android.kt":
         "12e9d182c7c9b6b2ae6ff57d52f9fec64dc6abdc136a29e4676bcbb211597f4f",
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/auth/OAuthProviderSignIn.android.kt":
@@ -72,12 +70,17 @@ REPLACED = {
         "b577c182d0045ef0040137e4e48b382a9052a2a5a5ad20e234bd6e0d23d8a9ae",
     "pebble/src/commonTest/kotlin/coredevices/pebble/ui/WatchHomeNavTabTest.kt":
         "4e443ba4a8d95781ba58cec133208c521b0d63363fc3346c80373671a3574dae",
+    # Rewritten without Core's cloud speech recognition and on-device engine (see
+    # remove_core_speech()).
+    "util/src/commonMain/kotlin/coredevices/util/transcription/HybridTranscriptionService.kt":
+        "7294e5f0a3835d72c0e7746b477fa6c3d3aec2d3c25cf929c4e7cda88d955ff8",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/STTRouter.kt":
+        "f66c6c31a4e0900c0c6f039f47db4deef3c5b616c3d075cb0f830ec600d1be78",
 }
 
 # Prebuilt binaries and files only they need, and Core's launcher artwork.
 REMOVED = [
     "cactus-native",
-    "cactus/src/commonMain/resources/ios",
     "models",
     "composeApp/src/androidMain/assets/models/needle-pebble-ft-cq4.zip",
     "androidApp/src/google-services-dummy.json",
@@ -108,6 +111,28 @@ REMOVED = [
     "util/src/commonTest/kotlin/coredevices/util/SecondaryProfileWarningTest.kt",
     "util/src/commonTest/kotlin/coredevices/util/transcription/TranscriptionExceptionErrorTypeTest.kt",
     "pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageClosedListener.kt",
+    # Core's cloud speech recognition and its on-device engine (see remove_core_speech()).
+    "cactus",
+    "util/src/commonMain/kotlin/coredevices/api/WisprFlowAuth.kt",
+    *(f"util/src/commonMain/kotlin/coredevices/util/transcription/{name}.kt" for name in (
+        "WisprFlowTranscriptionService", "WisprFlowRESTTranscriptionService",
+        "KirinkiTranscriptionService", "CactusTranscriptionService", "CactusModelPathProvider",
+        "InferenceBoost")),
+    "util/src/androidMain/kotlin/coredevices/util/transcription/CactusTranscriptionService.android.kt",
+    "util/src/commonMain/kotlin/coredevices/util/models/ModelManager.kt",
+    "util/src/commonMain/kotlin/coredevices/util/models/DownloadJobLiveness.kt",
+    "util/src/androidMain/kotlin/coredevices/util/models/ModelManager.android.kt",
+    "util/src/androidMain/kotlin/coredevices/util/models/ModelDownloadManager.android.kt",
+    "util/src/commonMain/kotlin/coredevices/ui/ModelDownloadDialog.kt",
+    "util/src/commonTest/kotlin/coredevices/util/models/DownloadJobLivenessTest.kt",
+    "util/src/commonTest/kotlin/coredevices/util/transcription/LocalTimeoutTest.kt",
+    "util/src/commonTest/kotlin/coredevices/util/transcription/WarmUpPolicyTest.kt",
+    "util/src/commonTest/kotlin/coredevices/util/transcription/ValidateContainsSpeechTest.kt",
+    "util/src/androidHostTest/kotlin/coredevices/util/transcription/MemInfoParserTest.kt",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/SttModelUpdatePrompt.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/ui/ModelManagementScreen.kt",
+    "pebble/src/commonMain/composeResources/drawable/wispr_flow_logo_black.png",
+    "pebble/src/commonMain/composeResources/drawable/wispr_flow_logo_white.png",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -118,9 +143,10 @@ DROPPED_ACCESSORS = (
 )
 
 
-# Settings Orb hides (by title): they need a Core account, Google services, the removed
-# on-device speech engine, or Core's telemetry backends.
-HIDDEN_SETTINGS = (
+# Settings Orb removes (by title): they need a Core account, Google services, the removed
+# on-device speech engine, or Core's telemetry backends. Each must still exist upstream, so a
+# rename fails the apply instead of the setting coming back.
+REMOVED_SETTINGS = (
     "App Update Available",
     "View My Bug Reports",
     "Open Google Fit",
@@ -337,28 +363,6 @@ def remove_index_ring(settings_screen: str) -> None:
     edit(util_module, r"^[ \t]*single \{ SecondaryProfileWarning\(.*\n", "")
     edit(util_module, r"^[ \t]*singleOf\(::AppstorePluginStore\) bind PluginStore::class\n", "")
     edit(util_module, r"^[ \t]*single \{ ConfigPageClosedListener\(.*\n", "")
-    # Core's on-device model provider lived in the ring module. Orb has no Cactus engine, so
-    # there are never models to find; screens that ask get an empty answer.
-    edit(util_module,
-         r"^([ \t]*)getOrNull<CactusModelPathProvider>\(\) \?: object : CactusModelPathProvider \{\n"
-         r"((?:[ \t]*override .*\n){8})[ \t]*\},\n",
-         r"\1get(),\n")
-    edit(util_module,
-         r"^    single \{\n        CactusTranscriptionService\(\n",
-         "    single<CactusModelPathProvider> {\n"
-         "        object : CactusModelPathProvider {\n"
-         '            override suspend fun getSTTModelPath(modelName: String, version: String): String = throw IllegalStateException("No on-device speech models in this build")\n'
-         '            override suspend fun getLMModelPath(): String = throw IllegalStateException("No on-device speech models in this build")\n'
-         "            override fun isModelDownloaded(modelName: String): Boolean = false\n"
-         "            override fun getDownloadedModels(): List<String> = emptyList()\n"
-         "            override fun getIncompatibleModels(): List<String> = emptyList()\n"
-         "            override fun deleteModel(modelName: String) {}\n"
-         "            override fun getModelSizeBytes(modelName: String): Long = 0L\n"
-         "            override fun initTelemetry() {}\n"
-         "        }\n"
-         "    }\n"
-         "    single {\n"
-         "        CactusTranscriptionService(\n")
     edit("composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/App.kt",
          r"^import coredevices\.ring\.ui\.screens\.settings\.DefaultDestinationPromptHost\n", "")
     edit("composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/App.kt",
@@ -508,6 +512,141 @@ def remove_index_ring(settings_screen: str) -> None:
          r'(?:(?!</intent-filter>).*\n)*?[ \t]*<data android:scheme="voiceapp" />\n[ \t]*</intent-filter>\n', "")
     edit("androidApp/src/main/res/values/strings.xml",
          r'^[ \t]*<string name="intent_filter_notion_login">Notion Linking</string>\n', "")
+
+
+def kotlin_bracket_pairs(text: str) -> dict[int, int]:
+    """Map each "(" / "{" / "[" offset in Kotlin source to the offset of its closing bracket.
+
+    Skips comments, string and raw-string literals (including ${...} templates) and char
+    literals, so brackets inside setting descriptions don't count.
+    """
+    pairs: dict[int, int] = {}
+    stack: list[int] = []
+    closers = {")": "(", "}": "{", "]": "["}
+    # Each frame: "code", a string kind, or "template:<offset of its ${ brace>".
+    modes: list[str] = ["code"]
+    i, n = 0, len(text)
+    while i < n:
+        mode, c = modes[-1], text[i]
+        if mode in ('"', '"""'):
+            if mode == '"' and c == "\\":
+                i += 2
+                continue
+            if text.startswith(mode, i) and not (mode == '"""' and text.startswith('""""', i)):
+                modes.pop()
+                i += len(mode)
+                continue
+            if text.startswith("${", i):
+                stack.append(i + 1)
+                modes.append(f"template:{i + 1}")
+                i += 2
+                continue
+            i += 1
+            continue
+        if text.startswith("//", i):
+            i = text.find("\n", i)
+            i = n if i < 0 else i
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            if end < 0:
+                raise ApplyError("unterminated block comment")
+            i = end + 2
+            continue
+        if text.startswith('"""', i):
+            modes.append('"""')
+            i += 3
+            continue
+        if c == '"':
+            modes.append('"')
+            i += 1
+            continue
+        if c == "'":
+            end = i + 1
+            while end < n and text[end] != "'":
+                end += 2 if text[end] == "\\" else 1
+            i = end + 1
+            continue
+        if c in "({[":
+            stack.append(i)
+        elif c in closers:
+            if not stack or text[stack[-1]] != closers[c]:
+                raise ApplyError(f"unbalanced {c!r} at offset {i}")
+            opener = stack.pop()
+            pairs[opener] = i
+            if mode == f"template:{opener}":
+                modes.pop()
+        i += 1
+    if stack or modes != ["code"]:
+        raise ApplyError("unbalanced brackets or unterminated string")
+    return pairs
+
+
+def remove_kotlin_block(path: str, start: str, expect: int = 1) -> None:
+    """Remove whole Kotlin blocks: from the line where `start` matches through the line that
+    closes the bracket `start` ends on (its last character must be "(" or "{").
+
+    A blank line left doubled by the removal is dropped too.
+    """
+    file = APP / path
+    text = file.read_text()
+    matches = list(re.finditer(start, text, re.MULTILINE))
+    if len(matches) != expect:
+        raise ApplyError(f"{path}: expected {expect} match(es) of {start!r}, found {len(matches)}")
+    pairs = kotlin_bracket_pairs(text)
+    spans = []
+    for m in matches:
+        bracket = m.end() - 1
+        if text[bracket] not in "({" or bracket not in pairs:
+            raise ApplyError(f"{path}: {start!r} must end on an opening bracket")
+        close = pairs[bracket]
+        # A parameter list followed by a body on the same line: `fun f(…) {`, `x(…) {`.
+        body = re.compile(r"\)[^\n{}()=]*\{").match(text, close)
+        if text[bracket] == "(" and body:
+            close = pairs[body.end() - 1]
+        begin = text.rfind("\n", 0, m.start()) + 1
+        end = text.find("\n", close)
+        end = len(text) if end < 0 else end + 1
+        if text[begin - 2:begin] == "\n\n" and text[end:end + 1] == "\n":
+            end += 1
+        spans.append((begin, end))
+    for begin, end in reversed(spans):
+        text = text[:begin] + text[end:]
+    file.write_text(text)
+
+
+SETTING_CALL = re.compile(r"\b(?:basicSettings\w*Item|SettingsItem)\($")
+
+
+def remove_setting(path: str, title: str) -> None:
+    """Remove the settings-list entry titled `title`, whole, from the settings screen.
+
+    The entry is the innermost `basicSettings…Item(` / `SettingsItem(` call around
+    `title = "<title>"`, with a `navBarNav?.let { nav -> … }` wrapper if it has one, through
+    its trailing comma. Exactly one such entry must exist.
+    """
+    file = APP / path
+    text = file.read_text()
+    hits = [m.start() for m in re.finditer(rf'^[ \t]*title = "{re.escape(title)}",$', text, re.MULTILINE)]
+    if len(hits) != 1:
+        raise ApplyError(f"{path}: expected 1 setting titled {title!r}, found {len(hits)}")
+    pairs = kotlin_bracket_pairs(text)
+    calls = [o for o, c in pairs.items()
+             if text[o] == "(" and o < hits[0] < c and SETTING_CALL.search(text, 0, o + 1)]
+    if not calls:
+        raise ApplyError(f"{path}: setting {title!r} is not inside a settings item call")
+    open_paren = max(calls)
+    close = pairs[open_paren]
+    start = text.rfind("\n", 0, open_paren) + 1
+    line_head = text[start:open_paren + 1]
+    wrapped = re.fullmatch(r"[ \t]*navBarNav\?\.let \{ nav -> \w+\(", line_head)
+    if not (wrapped or re.fullmatch(r"[ \t]*\w+\(", line_head)):
+        raise ApplyError(f"{path}: setting {title!r} starts in an unexpected form: {line_head!r}")
+    tail = re.compile(r"\) \},\n" if wrapped else r"\),\n")
+    m = tail.match(text, close)
+    if not m:
+        raise ApplyError(f"{path}: setting {title!r} doesn't end with the expected comma")
+    file.write_text(text[:start] + text[m.end():])
 
 
 def replace_literal(path: str, old: str, new: str, expect: int = 1) -> None:
@@ -764,6 +903,113 @@ fun orbDisplayName(raw: String, max: Int = 64): String {
 """)
 
 
+def remove_core_speech(settings_screen: str) -> None:
+    """Remove Core's cloud speech recognition and its on-device engine.
+
+    Core's cloud recognizers (Wispr Flow, Kirinki) need a Core account. Its on-device engine
+    (Cactus) is a prebuilt binary that Orb doesn't ship, and its models came from Hugging Face.
+    Dictation goes to the phone's speech recognition service, or to Rebble's if the user chooses
+    that. The speech services and router are replaced (REPLACED); the module, models and
+    screens are removed (REMOVED); this unhooks the rest. CactusSTTMode stays, because
+    settings that are already stored name its values; STTRouter sends every non-Rebble mode
+    to the system recognizer.
+    """
+    # Build wiring: the cactus module.
+    edit("settings.gradle.kts", r'^include\(":cactus"\)\n', "")
+    for gradle in ("androidApp", "pebble", "util"):
+        edit(f"{gradle}/build.gradle.kts", r'^[ \t]*(?:implementation|api|androidTestImplementation)\(project\(":cactus"\)\)\n', "")
+
+    # util: what only the removed services used.
+    downloads = "util/src/commonMain/kotlin/coredevices/util/models/ModelDownloadManager.kt"
+    remove_kotlin_block(downloads, r"^expect class ModelDownloadManager \{")
+    edit(downloads, r"^import kotlinx\.coroutines\.(Deferred|flow\.StateFlow)\n", "", expect=2)
+    transcription = "util/src/commonMain/kotlin/coredevices/util/transcription/TranscriptionService.kt"
+    remove_kotlin_block(transcription,
+                        r"^/\*\* A \[TranscriptionService\] that can run on-device engines.*\n"
+                        r"interface LocalTranscriptionService : TranscriptionService \{")
+    edit(transcription, r"^import kotlinx\.coroutines\.flow\.SharedFlow\n", "")
+
+    # composeApp: dependency injection, start-up and screens.
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module,
+         r"^import coredevices\.(api\.WisprFlowAuth|util\.models\.ModelManager"
+         r"|util\.transcription\.(CactusModelPathProvider|CactusTranscriptionService"
+         r"|KirinkiTranscriptionService|LocalTranscriptionService|WisprFlowRESTTranscriptionService))\n",
+         "", expect=7)
+    edit(util_module, r"^import org\.koin\.dsl\.binds\n", "")
+    edit(util_module,
+         r"^[ \t]*single \{ ModelManager\(get\(\), get\(\), getOrNull\(\)\) \}\n", "")
+    edit(util_module,
+         r"^[ \t]*singleOf\(::(WisprFlowAuth|WisprFlowRESTTranscriptionService|KirinkiTranscriptionService)\)\n",
+         "", expect=3)
+    remove_kotlin_block(util_module, r"^    single \{(?=\n        CactusTranscriptionService\()")
+    edit(util_module,
+         r"^    single \{\n        HybridTranscriptionService\(.*\n    \} binds arrayOf\(TranscriptionService::class, LocalTranscriptionService::class\)\n",
+         "    single { HybridTranscriptionService(get(), get()) } bind TranscriptionService::class\n")
+    android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
+    edit(android_module, r"^import coredevices\.util\.models\.ModelDownloadManager\n", "")
+    edit(android_module, r"^[ \t]*singleOf\(::ModelDownloadManager\)\n", "")
+
+    delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    remove_kotlin_block(delegate, r"^    private fun initCactus\(\) \{")
+    edit(delegate, r"^[ \t]*initCactus\(\)\n", "")
+    edit(delegate, r"^internal (?:const )?val STT_\w+ = .*\n", "", expect=4)
+    edit(delegate, r"^import coredevices\.util\.transcription\.CactusModelPathProvider\n", "")
+
+    app = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/App.kt"
+    edit(app, r"^[ \t]*SttModelUpdatePrompt\(\)\n", "")
+
+    dialog = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/SpeechModelDownloadDialog.kt"
+    edit(dialog,
+         r"^[ \t]*config\.sttConfig\.mode\.usesLocalCactus\(\) ->\n[ \t]*CactusModelDownloadDialog\(.*\n", "")
+    remove_kotlin_block(dialog, r"^@Composable\nprivate fun CactusModelDownloadDialog\(")
+    edit(dialog, r"^import coredevices\.util\.models\.(ModelInfo|ModelManager)\n", "", expect=2)
+
+    # pebble: the router's wiring and the offline-models screen.
+    watch_module = "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt"
+    edit(watch_module,
+         r"^(        STTRouter\(\n)            cactus = get\(\),\n            rebble = get\(\),\n"
+         r"            cactusService = get\(\),\n            coreConfigFlow = get\(\),\n"
+         r"            audioFrameDecoder = get\(\),\n",
+         r"\1            system = get(),\n            rebble = get(),\n            coreConfigFlow = get(),\n")
+    edit(watch_module, r"^import coredevices\.pebble\.ui\.ModelManagementScreenViewModel\n", "")
+    edit(watch_module, r"^[ \t]*viewModelOf\(::ModelManagementScreenViewModel\)\n", "")
+    routes = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/PebbleRoutes.kt"
+    edit(routes, r"^[ \t]*@Serializable\n[ \t]*data object OfflineModelsRoute : NavBarRoute\n\n", "")
+    remove_kotlin_block(routes, r"^[ \t]*composable<PebbleNavBarRoutes\.OfflineModelsRoute> \{")
+
+    # Settings: the state behind the removed speech settings, and the mode picker's checks for
+    # cloud sign-in, the on-device engine and its models.
+    edit(settings_screen,
+         r"^import (com\.cactus\.isCactusSupported|coreapp\.pebble\.generated\.resources\.wispr_flow_logo_\w+"
+         r"|coredevices\.util\.models\.(ModelInfo|ModelManager|RecommendedModel))\n",
+         "", expect=6)
+    remove_kotlin_block(settings_screen, r"^sealed interface RequestedLocalSTTMode \{")
+    edit(settings_screen,
+         r"^[ \t]*(val modelManager: ModelManager = koinInject\(\)"
+         r"|var pendingSTTModeDialog by remember \{ mutableStateOf<CactusSTTMode\?>\(null\) \}"
+         r"|val recommendedSTTModel = modelManager\.getRecommendedSTTModel\(\)"
+         r"|val modelDownloadState by modelManager\.modelDownloadStatus\.collectAsState\(\)"
+         r"|val modelDownloadStatus by modelManager\.modelDownloadStatus\.collectAsState\(\)"
+         r"|val cactusSupported = remember \{ isCactusSupported\(\) \})\n",
+         "", expect=6)
+    remove_kotlin_block(settings_screen, r"^[ \t]*pendingSTTModeDialog\?\.let \{")
+    remove_kotlin_block(settings_screen, r"^[ \t]*LaunchedEffect\(modelDownloadStatus\) \{")
+    remove_kotlin_block(settings_screen, r"^[ \t]*val hasOfflineModels by produceState\(false\) \{")
+    edit(settings_screen,
+         r"^([ \t]*)val needsLocal = it == CactusSTTMode\.LocalOnly \|\|\n(?:[ \t]*it == .*\n){3}", "")
+    edit(settings_screen,
+         r"^[ \t]*\} else if \(it != CactusSTTMode\.RemoteOnly && !isPlatform && !cactusSupported\) \{\n"
+         r"[ \t]*snackbarDisplay\.showSnackbar\(.*\n"
+         r"[ \t]*\} else if \(it != CactusSTTMode\.LocalOnly && !isPlatform && !isRebble && coreUser == null\) \{\n"
+         r"[ \t]*snackbarDisplay\.showSnackbar\(.*\n"
+         r"[ \t]*showSignInDialog = true\n"
+         r"[ \t]*\} else if \(needsLocal && !hasOfflineModels\) \{\n"
+         r"[ \t]*pendingSTTModeDialog = it\n",
+         "")
+    remove_kotlin_block(settings_screen, r"^[ \t]*extraSupportingContent = \{(?=\n[ \t]*modelDownloadState\.takeIf)")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -797,7 +1043,6 @@ def apply(extra_abis: list[str]) -> None:
     )
     edit("settings.gradle.kts", r"^[ \t]*mavenLocal\(\)\n", "")
     delete_lines(gradle_files(), DROPPED_ACCESSORS, at_least=10)
-    edit("cactus/build.gradle.kts", r'^\s*api\(project\(":cactus-native"\)\)\n', "")
     edit(
         "libpebble3/build.gradle.kts",
         r"^publishing \{\n(?:(?!\}\n).*\n)*\}\n\n",
@@ -1051,26 +1296,9 @@ def apply(extra_abis: list[str]) -> None:
         "Permission.SpeechRecognizer -> listOf(Manifest.permission.RECORD_AUDIO)",
     )
 
-    # Settings that lead only to a Core account, Google services or Core's telemetry backends,
-    # none of which Orb has. Filtered by title, so an upstream reorder doesn't matter; each
-    # title has to still exist, so a rename upstream fails here instead of reappearing.
     settings_screen = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt"
-    settings_text = (APP / settings_screen).read_text()
-    for title in HIDDEN_SETTINGS:
-        if f'title = "{title}"' not in settings_text:
-            raise ApplyError(f"{settings_screen}: no setting titled {title!r} to hide")
-    (APP / "pebble/src/commonMain/kotlin/coredevices/pebble/ui/OrbHiddenSettings.kt").write_text(
-        "package coredevices.pebble.ui\n\n"
-        "// Generated by Orb's apply.py.\n"
-        "internal val orbHiddenSettings: Set<String> = setOf(\n"
-        + "".join(f'    "{title}",\n' for title in HIDDEN_SETTINGS)
-        + ")\n"
-    )
-    edit(
-        settings_screen,
-        r"^(\s*)rawSettingsItems = rawSettingsItems,\n",
-        r"\1rawSettingsItems = rawSettingsItems.filterNot { it.title in orbHiddenSettings },\n",
-    )
+    for title in REMOVED_SETTINGS:
+        remove_setting(settings_screen, title)
     # Of the speech modes, only the system recognizer and Rebble's service work without Core's
     # cloud or the removed on-device engine.
     edit(
@@ -1203,6 +1431,7 @@ def apply(extra_abis: list[str]) -> None:
     )
 
     remove_index_ring(settings_screen)
+    remove_core_speech(settings_screen)
     confirm_external_input()
 
     if extra_abis:
