@@ -76,6 +76,9 @@ REPLACED = {
         "7294e5f0a3835d72c0e7746b477fa6c3d3aec2d3c25cf929c4e7cda88d955ff8",
     "pebble/src/commonMain/kotlin/coredevices/pebble/services/STTRouter.kt":
         "f66c6c31a4e0900c0c6f039f47db4deef3c5b616c3d075cb0f830ec600d1be78",
+    # Orb's on-phone list of store apps in place of Core's cloud locker (see remove_cloud_locker()).
+    "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreLocker.kt":
+        "c23f89a47c3da5e07aa942979ca59bcc7b74ec92338ff48a47986fe4a933d749",
 }
 
 # Prebuilt binaries and files only they need, and Core's launcher artwork.
@@ -160,6 +163,11 @@ REMOVED = [
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/BugReportService.kt",
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.android.kt",
     "composeApp/src/iosMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.ios.kt",
+    # Core's cloud locker's helpers: permission decisions uploaded to it, and a one-off move of
+    # copies the official app once sideloaded (see remove_cloud_locker()).
+    "pebble/src/commonMain/kotlin/coredevices/pebble/account/PermissionDecisionSync.kt",
+    "pebble/src/commonTest/kotlin/coredevices/pebble/account/PermissionDecisionSyncTest.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/BundledAppMigration.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -1230,6 +1238,43 @@ def remove_crashlytics() -> None:
     edit(delegate, r"^import dev\.gitlive\.firebase\.(Firebase|crashlytics\.crashlytics)\n", "", expect=(1, 2))
 
 
+def remove_cloud_locker() -> None:
+    """Keep the list of the user's store apps on the phone instead of in Core's cloud.
+
+    Core's locker list lives in Firestore under a Core account. In Orb nobody is ever signed in,
+    so that list never loaded: locker sync returned nothing (a Rebble account's locker never came
+    in), and the check for which store an installed app came from never finished. Orb's
+    FirestoreLocker.kt (replaced) keeps the list in the app's settings and syncs from the stores
+    directly. What only fed the cloud list goes: uploading permission decisions to it, and moving
+    the official app's old sideloaded copies into it, which nothing in Orb ever marks for moving.
+    """
+    watch_module = "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt"
+    edit(watch_module, r"^import coredevices\.pebble\.account\.(FirestoreLockerDao|PermissionDecisionSync)\n", "", expect=2)
+    edit(watch_module, r"^import coredevices\.pebble\.services\.BundledAppMigration\n", "")
+    edit(watch_module, r"^import coredevices\.pebble\.account\.RealFirestoreLocker\n",
+         "import coredevices.pebble.account.LocalLocker\n")
+    edit(watch_module, r"^[ \t]*single \{ FirestoreLockerDao \{ get\(\) \} \}\n", "")
+    edit(watch_module, r"^[ \t]*singleOf\(::(PermissionDecisionSync|BundledAppMigration)\)\n", "", expect=2)
+    edit(watch_module, r"singleOf\(::RealFirestoreLocker\) bind FirestoreLocker::class",
+         "singleOf(::LocalLocker) bind FirestoreLocker::class")
+
+    delegate = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleAppDelegate.kt"
+    edit(delegate, r"^import coredevices\.pebble\.services\.BundledAppMigration\n", "")
+    edit(delegate, r"^    private val bundledAppMigration: BundledAppMigration,\n", "")
+    edit(delegate, r"^[ \t]*bundledAppMigration\.init\(\)\n", "")
+
+    app_delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    edit(app_delegate, r"^import coredevices\.pebble\.account\.(FirestoreLocker|PermissionDecisionSync)\n", "", expect=2)
+    edit(app_delegate,
+         r"^    private val (firestoreLocker: FirestoreLocker|permissionDecisionSync: PermissionDecisionSync),\n",
+         "", expect=2)
+    edit(app_delegate, r"^        (firestoreLocker|permissionDecisionSync)\.init\(\)\n", "", expect=2)
+
+    edit("pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt",
+         r"(override suspend fun removeApp\(uuid: Uuid\): Boolean = true\n)[ \t]*override fun init\(\) \{\}\n",
+         r"\1")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1656,6 +1701,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_core_account_screens(settings_screen)
     remove_core_support_chat()
     remove_crashlytics()
+    remove_cloud_locker()
 
     if extra_abis:
         edit(
