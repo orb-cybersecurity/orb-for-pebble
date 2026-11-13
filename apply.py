@@ -145,12 +145,27 @@ REMOVED = [
     "util/src/commonMain/kotlin/AppUpdateTracker.kt",
     # Stand-ins for Core's noise-suppression library that nothing depends on.
     "krisp-stubs",
+    # Core's support chat: push messages, its bug-report API and the ticket viewer
+    # (see remove_core_support_chat()).
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/api",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/api",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/api",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/push",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/push",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/push",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/apiModule.kt",
+    "util/src/commonMain/kotlin/CommonApiConfig.kt",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/ViewBugReportScreen.kt",
+    "composeApp/src/commonTest/kotlin/coredevices/coreapp/ui/screens/ViewBugReportScreenTest.kt",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/BugReportService.kt",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.android.kt",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.ios.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
 DROPPED_ACCESSORS = (
     r"libs\.(?:firebase\.bom|firebase\.crashlytics(?:\.ndk)?|gms\.auth|identity\.google"
-    r"|play\.update(?:\.ktx)?|crashkios|mixpanel\.android"
+    r"|play\.update(?:\.ktx)?|crashkios|mixpanel\.android|kmpnotifier"
     r"|plugins\.googleServices|plugins\.firebaseCrashlytics)\b"
 )
 
@@ -1133,6 +1148,64 @@ def remove_core_account_screens(settings_screen: str) -> None:
     edit("settings.gradle.kts", r'^include\(":krisp-stubs"\)\n', "")
 
 
+def remove_core_support_chat() -> None:
+    """Remove Core's support chat and the push messages that fed it.
+
+    Core uploads bug reports to its support backend for a signed-in Core account and answers
+    them in a chat that arrives as push messages (KMPNotifier on Firebase Cloud Messaging) and
+    opens in a ticket viewer. Orb has no Core account and no Firebase, so the report is only
+    ever shared as a file (BugReportProcessor.kt, replaced); the API, the push handling, the
+    viewer and the foreground service that showed upload progress go (REMOVED), and this
+    unhooks them. KMPNotifier and Orb's stand-in for it go too: nothing else used them.
+    """
+    delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    edit(delegate,
+         r"^import (com\.mmk\.kmpnotifier\.notification\.NotifierManager"
+         r"|coredevices\.coreapp\.api\.BugReports|coredevices\.coreapp\.push\.PushMessaging)\n",
+         "", expect=3)
+    edit(delegate, r"^    private val (pushMessaging: PushMessaging|bugReports: BugReports),\n", "", expect=2)
+    edit(delegate, r"^        (pushMessaging|bugReports)\.init\(\)\n", "", expect=2)
+
+    main_application = "composeApp/src/androidMain/kotlin/coredevices/coreapp/MainApplication.kt"
+    edit(main_application,
+         r"^import (com\.mmk\.kmpnotifier\.notification\.(NotifierManager|configuration\.NotificationPlatformConfiguration)"
+         r"|coredevices\.coreapp\.di\.apiModule)\n",
+         "", expect=3)
+    edit(main_application, r"^[ \t]*apiModule,\n", "")
+    remove_kotlin_block(main_application, r"^        NotifierManager\.initialize\(")
+
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module, r"^import coredevices\.coreapp\.push\.PushMessaging\n", "")
+    edit(util_module, r"^[ \t]*singleOf\(::PushMessaging\)\n", "")
+
+    # The ticket viewer, its route and the deep link that push notifications opened.
+    nav_host = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt"
+    remove_kotlin_block(nav_host, r"^[ \t]*composable<CommonRoutes\.ViewBugReportRoute>\(")
+    edit(nav_host, r"^import coredevices\.coreapp\.ui\.screens\.ViewBugReportScreen\n", "")
+    edit("util/src/commonMain/kotlin/CommonRoutes.kt",
+         r"^    @Serializable\n    data class ViewBugReportRoute\(\n        val conversationId: String,\n"
+         r"    \) : CoreRoute\n\n", "")
+    deep_links = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandler.kt"
+    edit(deep_links, r"^        private const val (VIEW_BUG_REPORT_PATH|CONVERSATION_ID_QUERY_PARAM) = .*\n", "", expect=2)
+    edit(deep_links,
+         r"^\n        fun CommonRoutes\.ViewBugReportRoute\.asUri\(\): Uri = Uri\.Builder\(\)\n"
+         r"(?:            \..*\n){4}            \.build\(\)\n", "")
+
+    # The bug-report screen asked whether Core's upload service was configured.
+    edit("composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt",
+         r"^[ \t]*val canSendReports = bugReportProcessor\.canSendReports\(\)\n", "")
+
+    # The upload progress service, and a service entry whose class went with Core's model
+    # downloads (remove_core_speech()).
+    manifest = "androidApp/src/main/AndroidManifest.xml"
+    edit(manifest,
+         r'^        <service\n            android:name="\.BugReportService"\n(?:            .*\n){2}'
+         r'            android:foregroundServiceType="connectedDevice" />\n', "")
+    edit(manifest,
+         r'^        <service android:name="coredevices\.util\.models\.ModelDownloadService"\n'
+         r'(?:            .*\n){2}        </service>\n', "")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1557,6 +1630,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_core_speech(settings_screen)
     confirm_external_input()
     remove_core_account_screens(settings_screen)
+    remove_core_support_chat()
 
     if extra_abis:
         edit(
