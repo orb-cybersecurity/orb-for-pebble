@@ -1,0 +1,95 @@
+package coredevices.coreapp
+
+import android.app.ForegroundServiceStartNotAllowedException
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.content.ContextCompat
+import co.touchlab.kermit.Logger
+import coredevices.util.CoreConfigFlow
+import io.rebble.libpebblecommon.connection.ActiveDevice
+import io.rebble.libpebblecommon.connection.LibPebble
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+
+class PebbleBackgroundManager(
+    private val context: Context,
+    private val coreConfigFlow: CoreConfigFlow,
+    private val libPebble: LibPebble,
+) {
+    companion object {
+        private val logger = Logger.withTag("PebbleBackgroundManager")
+    }
+
+    @Volatile
+    private var shouldBeRunning: Boolean? = null
+
+    private fun startBackground() {
+        try {
+            ContextCompat.startForegroundService(context, Intent(context, PebbleService::class.java))
+        } catch (e: Exception) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && e is ForegroundServiceStartNotAllowedException) {
+                logger.w(e) { "Cannot start PebbleService from background (no CDM exemption?)" }
+            } else {
+                throw e
+            }
+        }
+    }
+
+    private fun stopBackground() {
+        context.stopService(Intent(context, PebbleService::class.java))
+    }
+
+    fun monitorToStartBackground() {
+        combine(
+            coreConfigFlow.flow,
+            libPebble.bluetoothEnabled,
+            libPebble.watches,
+        ) { config, btState, watches ->
+            config.androidForegroundServiceForWatchConnectionV2 &&
+                btState.enabled() &&
+                watches.any { it is ActiveDevice }
+        }
+            .distinctUntilChanged()
+            .onEach { shouldRun ->
+                logger.d { "shouldRun=$shouldRun isRunning=${isRunning.value}" }
+                shouldBeRunning = shouldRun
+                if (shouldRun && !isRunning.value) {
+                    startBackground()
+                } else if (!shouldRun && isRunning.value) {
+                    stopBackground()
+                }
+            }
+            .launchIn(GlobalScope)
+    }
+
+    /**
+     * Retry starting the background service when the app is foregrounded. The initial start may
+     * have failed while backgrounded.
+     */
+    fun retryStartIfNeeded() {
+        if (shouldBeRunning == true && !isRunning.value) {
+            logger.i { "App foregrounded; retrying background service start (was not running)" }
+            startBackground()
+        }
+    }
+
+    /** Returns false if the service should stop: it started after we'd already decided it shouldn't run. */
+    fun onServiceStarted(): Boolean {
+        _isRunning.value = true
+        return shouldBeRunning != false
+    }
+
+    fun onServiceStopped() {
+        _isRunning.value = false
+    }
+
+    private val _isRunning: MutableStateFlow<Boolean> = MutableStateFlow(false)
+    val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
+}

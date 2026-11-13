@@ -1,0 +1,205 @@
+package coredevices.coreapp.ui.screens
+
+import CoreNav
+import NoOpCoreNav
+import PlatformUiContext
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import co.touchlab.kermit.Logger
+import com.russhwolf.settings.Settings
+import com.russhwolf.settings.set
+import coredevices.pebble.ui.PebbleRoutes
+import coredevices.pebble.ui.PreviewWrapper
+import coredevices.ui.PebbleElevatedButton
+import coredevices.util.DoneInitialOnboarding
+import coredevices.util.Permission
+import coredevices.util.PermissionRequester
+import coredevices.util.name
+import coredevices.util.rememberUiContext
+import coredevices.util.requestIsFullScreen
+import kotlinx.coroutines.launch
+import org.jetbrains.compose.ui.tooling.preview.Preview
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.dsl.module
+import theme.onboardingScheme
+
+
+enum class OnboardingStage {
+    Welcome,
+    Permissions,
+    Done,
+}
+
+class OnboardingViewModel : ViewModel() {
+    val stage = mutableStateOf(OnboardingStage.Welcome)
+    val requestedPermissions = mutableStateOf(emptySet<Permission>())
+}
+
+private val logger = Logger.withTag("OnboardingScreen")
+
+@Preview
+@Composable
+fun OnboardingScreenPreview() {
+    PreviewWrapper(extraModule = module {
+        single { OnboardingViewModel() }
+    }) {
+        OnboardingScreen(NoOpCoreNav)
+    }
+}
+
+
+@Composable
+fun OnboardingScreen(
+    coreNav: CoreNav,
+) {
+    val viewModel = koinViewModel<OnboardingViewModel>()
+    val permissionRequester: PermissionRequester = koinInject()
+    val scope = rememberCoroutineScope()
+    val settings: Settings = koinInject()
+    val doneInitialOnboarding: DoneInitialOnboarding = koinInject()
+
+    fun exitOnboarding() {
+        logger.v { "exitOnboarding" }
+        settings[SHOWN_ONBOARDING] = true
+        doneInitialOnboarding.onDoneInitialOnboarding()
+        coreNav.navigateTo(PebbleRoutes.WatchHomeRoute)
+    }
+
+    suspend fun requestPermission(permission: Permission, uiContext: PlatformUiContext) {
+        permissionRequester.requestPermission(permission, uiContext)
+        viewModel.requestedPermissions.value += permission
+    }
+
+    MaterialTheme(colorScheme = onboardingScheme) {
+    Scaffold { windowInsets ->
+        Box(modifier = Modifier.padding(windowInsets).fillMaxSize()) {
+            when (viewModel.stage.value) {
+                OnboardingStage.Welcome -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(text = "Orb", fontSize = 44.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(text = "for Pebble watches", color = Color.White)
+                        Spacer(modifier = Modifier.height(15.dp))
+                        PebbleElevatedButton(
+                            text = "Get Started",
+                            onClick = {
+                                viewModel.stage.value = OnboardingStage.Permissions
+                            },
+                            primaryColor = true,
+                        )
+                    }
+                }
+
+                OnboardingStage.Permissions -> {
+                    val uiContext = rememberUiContext()
+                    if (uiContext != null) {
+                        val missingPermissions by permissionRequester.missingPermissions.collectAsState()
+                        val permissionToRequest = missingPermissions.firstOrNull {
+                            it !in viewModel.requestedPermissions.value
+                        }
+                        logger.v { "permissionToRequest = $permissionToRequest  /  missingPermissions = $missingPermissions " }
+                        if (permissionToRequest == null) {
+                            viewModel.stage.value = OnboardingStage.Done
+                        } else {
+                            val warnBeforeFullScreenRequest = permissionToRequest.requestIsFullScreen()
+                            LaunchedEffect(permissionToRequest) {
+                                if (!warnBeforeFullScreenRequest) {
+                                    requestPermission(permissionToRequest, uiContext)
+                                }
+                            }
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = if (warnBeforeFullScreenRequest) {
+                                    Arrangement.Center
+                                } else {
+                                    Arrangement.Top
+                                },
+                            ) {
+                                if (!warnBeforeFullScreenRequest) {
+                                    // Space from top of screen
+                                    Spacer(modifier = Modifier.height(20.dp))
+                                }
+                                Text(
+                                    text = permissionToRequest.name(),
+                                    fontSize = 25.sp,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(permissionToRequest.descriptionOnboarding(), textAlign = TextAlign.Center)
+                                if (warnBeforeFullScreenRequest) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    PebbleElevatedButton(
+                                        text = "OK",
+                                        onClick = {
+                                            scope.launch {
+                                                requestPermission(
+                                                    permissionToRequest,
+                                                    uiContext
+                                                )
+                                            }
+                                        },
+                                        primaryColor = true,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OnboardingStage.Done -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        PebbleElevatedButton(
+                            text = "Connect a Pebble!",
+                            onClick = ::exitOnboarding,
+                            primaryColor = true,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    }
+}
+
+val HighlightStyle = SpanStyle(
+    fontWeight = FontWeight.Bold,
+    fontStyle = FontStyle.Italic
+)
+
+expect fun Permission.descriptionOnboarding(): AnnotatedString
+
+const val SHOWN_ONBOARDING = "shown_onboarding"

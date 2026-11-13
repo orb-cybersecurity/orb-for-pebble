@@ -6,7 +6,8 @@
 <ul>
 <li>Firebase (accounts, crash reporting), Google sign-in, Google Play in-app updates and push messaging</li>
 <li>Mixpanel analytics</li>
-<li>The prebuilt Cactus speech engine and the Index 01 ring's closed-source radio library</li>
+<li>The prebuilt Cactus speech engine</li>
+<li>Support for Core's Index 01 ring, whose radio library is closed source. Orb has no plans to support the ring.</li>
 <li>The Google Fit fallback (Health Connect is still used where available)</li>
 </ul>
 

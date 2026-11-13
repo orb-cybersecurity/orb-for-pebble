@@ -1,7 +1,7 @@
 // Orb for Pebble: wires the stand-in modules under orb/ into Core's build.
 // Applied from the end of settings.gradle.kts by apply.py.
 
-listOf("firebase-stubs", "kmpnotifier-stubs", "haversine-stubs", "speex", "speex-native").forEach { name ->
+listOf("firebase-stubs", "kmpnotifier-stubs", "speex", "speex-native").forEach { name ->
     include(":$name")
     project(":$name").projectDir = rootDir.resolve("orb/$name")
 }
@@ -20,8 +20,6 @@ gradle.lifecycle.beforeProject {
             ).forEach { substitute(module(it)).using(project(":firebase-stubs")) }
             substitute(module("io.github.mirzemehdi:kmpnotifier"))
                 .using(project(":kmpnotifier-stubs"))
-            substitute(module("io.github.coredevices.haversine:haversine"))
-                .using(project(":haversine-stubs"))
             // Built from source; see orb/speex.
             substitute(module("io.github.coredevices.speex:speex")).using(project(":speex"))
         }

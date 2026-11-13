@@ -42,8 +42,6 @@ REPLACED = {
         "aee44639f643a51315264b1cb1d682bbd994711f3e94f68bcda519be60b856ec",
     "util/src/androidMain/kotlin/coredevices/analytics/Analytics.android.kt":
         "3fedd71bd66e151231851313df2970364e4c2726e065649ea8f007a3b9274ddc",
-    "experimental/src/androidMain/kotlin/coredevices/ring/database/firestore/dao/AggregateCount.android.kt":
-        "f4a6756127386188a4db9ff9a4d3d679db0c8c1dcee9edef988eea6149f1ce7f",
     "util/src/androidMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.android.kt":
         "4b95f649c8dd2a5e2e3c6e3a19f9c05836d64315d0a75f8aa096201ff5819d36",
     "util/src/commonMain/kotlin/theme/Theme.kt":
@@ -56,6 +54,24 @@ REPLACED = {
         "2b3d92d6e19240c4fc0600e8264074f8f225b309f8bddbf9f320e22c43e07fee",
     "util/src/androidMain/res/drawable/ic_notification.xml":
         "ebbaa2c938c3ec08711ad4321616ec4815993de4d59bd86edf83e5ce8acf8af2",
+    # Rewritten without Core's Index 01 ring (see remove_index_ring()); the replacements also
+    # carry Orb's other changes to these files.
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/PebbleService.kt":
+        "7dfc7d7aaa33da14a10990c688c6e08245f2bcccfa3f724965ed5a364b1b0597",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/PebbleBackgroundManager.kt":
+        "3e99e6895ed9efd054313a1dffabbbdceb781f6aceb19b7a057b881868c35534",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.kt":
+        "2a4e001b8b85921d3228491775e0af10b27648a5c59854cf7f35da5901593ee4",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/OnboardingScreen.kt":
+        "751898c0160d2604f7e598356bd61245f637a0f65c179b8147146d8af6d6951f",
+    "composeApp/src/commonTest/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandlerTest.kt":
+        "cd116f99cce317aa67d5e339cc2769e2c663899333fd7f70b3d4a091c4286e42",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchHomeScreen.kt":
+        "9f2bc23f1f080baa28864052c4d120777935887e6cde74734494114d4d8605e1",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchesScreen.kt":
+        "b577c182d0045ef0040137e4e48b382a9052a2a5a5ad20e234bd6e0d23d8a9ae",
+    "pebble/src/commonTest/kotlin/coredevices/pebble/ui/WatchHomeNavTabTest.kt":
+        "4e443ba4a8d95781ba58cec133208c521b0d63363fc3346c80373671a3574dae",
 }
 
 # Prebuilt binaries and files only they need, and Core's launcher artwork.
@@ -73,6 +89,25 @@ REMOVED = [
     "composeApp/src/commonMain/composeResources/drawable/pebble-logo.png",
     *(f"util/src/androidMain/res/mipmap-{d}/ic_launcher_foreground.webp"
       for d in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi")),
+    # Core's Index 01 ring: its radio library is closed source and Orb has no plans to support
+    # the ring. Its modules, and what only they used (see remove_index_ring()).
+    "experimental",
+    "libindex",
+    "index-ai",
+    "mcp",
+    "resampler",
+    "androidApp/src/androidTest",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/ringonboarding",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/plugins",
+    "composeApp/src/commonMain/composeResources/drawable/index01_mic.png",
+    "util/src/commonMain/composeResources/drawable/ring_wireframe.png",
+    "util/src/commonMain/kotlin/coredevices/EnableExperimentalDevices.kt",
+    "util/src/commonMain/kotlin/coredevices/pebble/ui/IndexTabBadge.kt",
+    "util/src/commonMain/kotlin/coredevices/ui/SecondaryProfileWarningDialog.kt",
+    "util/src/commonMain/kotlin/coredevices/util/SecondaryProfileWarning.kt",
+    "util/src/commonTest/kotlin/coredevices/util/SecondaryProfileWarningTest.kt",
+    "util/src/commonTest/kotlin/coredevices/util/transcription/TranscriptionExceptionErrorTypeTest.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageClosedListener.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -88,7 +123,6 @@ DROPPED_ACCESSORS = (
 HIDDEN_SETTINGS = (
     "App Update Available",
     "View My Bug Reports",
-    "Enable Index Feed",
     "Open Google Fit",
     "Manage Offline Models",
     "Cloud Recognition Provider",
@@ -195,6 +229,280 @@ def gradle_files() -> list[Path]:
     )
 
 
+def remove_index_ring(settings_screen: str) -> None:
+    """Remove Core's Index 01 ring.
+
+    The ring's radio library is closed source, and Orb has no plans to support the ring. Its
+    modules (experimental, libindex, index-ai, mcp, resampler) are in REMOVED; this
+    unhooks everything that reached into them. Files changed too much to edit are replaced
+    (REPLACED); the rest are edited here.
+    """
+    # Build wiring.
+    edit("settings.gradle.kts", r'^include\(":(mcp|index-ai|resampler|libindex|experimental)"\)\n', "", expect=5)
+    edit("composeApp/build.gradle.kts",
+         r'^[ \t]*(implementation|api)\(project\(":(experimental|libindex|index-ai|mcp)"\)\)\n', "", expect=4)
+    edit("composeApp/build.gradle.kts", r"^[ \t]*implementation\(libs\.coredevices\.haversine\)\n", "")
+    edit("util/build.gradle.kts", r'^[ \t]*(implementation|api)\(project\(":(libindex|index-ai)"\)\)\n', "", expect=2)
+    edit("pebble/build.gradle.kts", r'^[ \t]*implementation\(project\(":libindex"\)\)\n', "")
+    edit("androidApp/build.gradle.kts",
+         r'^[ \t]*androidTestImplementation\(project\(":(experimental|libindex|index-ai|mcp)"\)\)\n', "", expect=4)
+    edit("gradle/libs.versions.toml", r"^coredevices-haversine = .*\n", "", expect=2)
+
+    # util: the ring's config, routes and companion-device calls.
+    core_config = "util/src/commonMain/kotlin/coredevices/util/CoreConfig.kt"
+    edit(core_config, r'listOf\("WatchFaces", "Index", "Watches"\)', 'listOf("WatchFaces", "Watches")')
+    edit("util/src/commonTest/kotlin/coredevices/util/CoreConfigTest.kt",
+         r'"WatchFaces", "Index", "Watches",', '"WatchFaces", "Watches",', expect=2)
+    edit(core_config, r"^[ \t]*val (enableIndex|indexPermissionsConfirmed): Boolean = false,\n", "", expect=2)
+    edit(core_config,
+         r"^[ \t]*/\*\* Stops the ring scan/sync loop.*\*/\n[ \t]*val disableRingBluetoothSync: Boolean = false,\n", "")
+    edit("util/src/commonMain/kotlin/CommonRoutes.kt",
+         r"^[ \t]*@Serializable\n[ \t]*data object RingOnboardingRoute : CoreRoute\n\n", "")
+    edit("util/src/commonMain/kotlin/CommonRoutes.kt", r"^[ \t]*val recordingPath: String\? = null,\n", "")
+    bug_button = "util/src/commonMain/kotlin/BugReportButton.kt"
+    edit(bug_button, r"^[ \t]*recordingPath: String\? = null,\n", "")
+    edit(bug_button, r"^[ \t]*recordingPath = recordingPath,\n", "")
+    edit("util/src/commonMain/kotlin/coredevices/pebble/ui/TopBarParams.kt",
+         r"^[ \t]*/\*\* Hide the chrome's TopAppBar.*\n(?:[ \t]*\*.*\n)*?[ \t]*val setHidden: \(Boolean\) -> Unit = \{\},\n", "")
+    transcription_exception = "util/src/commonMain/kotlin/coredevices/util/transcription/TranscriptionException.kt"
+    edit(transcription_exception, r"^import coredevices\.indexai\.data\.entity\.RecordingEntryErrorType\n\n", "")
+    edit(transcription_exception,
+         r"^[ \t]*/\*\* How this failure is persisted on the recording entry\. \*/\n[ \t]*abstract val errorType: RecordingEntryErrorType\n\n", "")
+    # Each subclass then has an empty body.
+    edit(transcription_exception,
+         r" \{\n[ \t]*override val errorType = RecordingEntryErrorType\.[a-z_]+\n[ \t]*\}\n", "\n", expect=7)
+    companion = "util/src/commonMain/kotlin/coredevices/util/CompanionDevice.kt"
+    edit(companion, r"^import coredevices\.libindex\.device\.IndexIdentifier\n", "")
+    edit(companion, r"^[ \t]*(suspend )?fun [a-zA-Z]+\(identifier: IndexIdentifier[^\n]*\n", "", expect=4)
+    android_companion = "util/src/androidMain/kotlin/coredevices/util/AndroidCompanionDevice.kt"
+    edit(android_companion, r"^import coredevices\.libindex\.device\.IndexIdentifier\n", "")
+    edit(android_companion, r"^import android\.companion\.BluetoothDeviceFilter\n", "")
+    edit(android_companion, r"^import android\.annotation\.SuppressLint\n", "")
+    edit(android_companion,
+         r"^    override suspend fun registerDevice\(\n[ \t]*identifier: IndexIdentifier,\n(?:.*\n)*?    \}\n\n", "")
+    edit(android_companion,
+         r"^    override fun hasApprovedDevice\(identifier: IndexIdentifier\): Boolean \{\n(?:.*\n)*?    \}\n\n", "")
+    edit(android_companion,
+         r"^    private fun bondRemovableAssociation\(identifier: IndexIdentifier\)(?:.*\n)*?"
+         r"            false\n        \}\n    \}\n\n", "")
+    edit(android_companion, r",\n[ \t]*useClassicAssociation: Boolean = false\n", "\n")
+    edit(android_companion,
+         r"^([ \t]*)val filter = if \(useClassicAssociation\) \{\n(?:.*\n)*?[ \t]*\} else \{\n"
+         r"([ \t]*)BluetoothLeDeviceFilter\.Builder\(\)\n"
+         r"[ \t]*\.setScanFilter\(ScanFilter\.Builder\(\)\.setDeviceAddress\(macAddress\)\.build\(\)\)\n"
+         r"[ \t]*\.build\(\)\n[ \t]*\}\n",
+         r"\1val filter = BluetoothLeDeviceFilter.Builder()" "\n"
+         r"\1    .setScanFilter(ScanFilter.Builder().setDeviceAddress(macAddress).build())" "\n"
+         r"\1    .build()" "\n")
+
+    # composeApp: startup, DI, navigation and the bug report.
+    android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
+    edit(android_module, r"^import coredevices\.ring\.RingDelegate\n", "")
+    edit(android_module, r"^import coredevices\.util\.CoreConfigFlow\n", "")
+    edit(android_module, r"^import kotlinx\.coroutines\.flow\.(combine|map)\n", "", expect=2)
+    edit(android_module,
+         r"^    single \{\n        val pebbleDelegate = get<PebbleAndroidDelegate>\(\)\n(?:.*\n)*?        \)\n    \}\n",
+         "    single { RequiredPermissions(get<PebbleAndroidDelegate>().requiredPermissions) }\n")
+    main_application = "composeApp/src/androidMain/kotlin/coredevices/coreapp/MainApplication.kt"
+    edit(main_application, r"^import coredevices\.(ExperimentalDevices|experimentalModule)\n", "", expect=2)
+    edit(main_application, r"^[ \t]*private val experimentalDevices: ExperimentalDevices by inject\(\)\n", "")
+    edit(main_application, r"^[ \t]*experimentalModule,\n", "")
+    edit(main_application, r"^[ \t]*experimentalDevices\.appInit\(\)\n", "")
+    main_activity = "composeApp/src/androidMain/kotlin/coredevices/coreapp/MainActivity.kt"
+    edit(main_activity, r"^import coredevices\.ExperimentalDevices\n", "")
+    edit(main_activity, r"^[ \t]*private val experimentalDevices: ExperimentalDevices by inject\(\)\n", "")
+    edit(main_activity, r"^[ \t]*experimentalDevices\.handleDeepLink\(it\)\n", "")
+    app_delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    edit(app_delegate, r"^import coredevices\.ExperimentalDevices\n", "")
+    edit(app_delegate, r"^[ \t]*private val experimentalDevices: ExperimentalDevices,\n", "")
+    edit(app_delegate, r"^import kotlinx\.coroutines\.withContext\n", "")
+    edit(app_delegate,
+         r"^([ \t]*)weatherFetcher\.init\(\)\n[ \t]*withContext\(Dispatchers\.Main\) \{\n"
+         r"[ \t]*experimentalDevices\.init\(\)\n[ \t]*\}\n",
+         r"\1weatherFetcher.init()" "\n")
+    edit(app_delegate,
+         r"^[ \t]*// Use the background runtime window even if the sync intervals below haven't elapsed\n"
+         r"[ \t]*experimentalDevices\.onBackgroundSync\(\)\n", "")
+    logging = "composeApp/src/commonMain/kotlin/coredevices/coreapp/util/logging.kt"
+    edit(logging, r"^import coredevices\.ExperimentalDevices\n", "")
+    edit(logging,
+         r"^suspend fun generateDeviceSummary\(experimentalDevices: ExperimentalDevices\): String \{\n(?:.*\n)*?\}\n\n",
+         "")
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module,
+         r"^import coredevices\.(EnableExperimentalDevices|coreapp\.plugins\.AppstorePluginStore"
+         r"|pebble\.config\.ConfigPageClosedListener|ring\.agent\.integrations\.providers\.DefaultDestinationPrompter"
+         r"|ring\.agent\.pebble_plugin\.PluginStore|util\.SecondaryProfileWarning)\n", "", expect=6)
+    edit(util_module, r"^[ \t]*singleOf\(::EnableExperimentalDevices\)\n", "")
+    edit(util_module, r"^[ \t]*single \{ SecondaryProfileWarning\(.*\n", "")
+    edit(util_module, r"^[ \t]*singleOf\(::AppstorePluginStore\) bind PluginStore::class\n", "")
+    edit(util_module, r"^[ \t]*single \{ ConfigPageClosedListener\(.*\n", "")
+    # Core's on-device model provider lived in the ring module. Orb has no Cactus engine, so
+    # there are never models to find; screens that ask get an empty answer.
+    edit(util_module,
+         r"^([ \t]*)getOrNull<CactusModelPathProvider>\(\) \?: object : CactusModelPathProvider \{\n"
+         r"((?:[ \t]*override .*\n){8})[ \t]*\},\n",
+         r"\1get(),\n")
+    edit(util_module,
+         r"^    single \{\n        CactusTranscriptionService\(\n",
+         "    single<CactusModelPathProvider> {\n"
+         "        object : CactusModelPathProvider {\n"
+         '            override suspend fun getSTTModelPath(modelName: String, version: String): String = throw IllegalStateException("No on-device speech models in this build")\n'
+         '            override suspend fun getLMModelPath(): String = throw IllegalStateException("No on-device speech models in this build")\n'
+         "            override fun isModelDownloaded(modelName: String): Boolean = false\n"
+         "            override fun getDownloadedModels(): List<String> = emptyList()\n"
+         "            override fun getIncompatibleModels(): List<String> = emptyList()\n"
+         "            override fun deleteModel(modelName: String) {}\n"
+         "            override fun getModelSizeBytes(modelName: String): Long = 0L\n"
+         "            override fun initTelemetry() {}\n"
+         "        }\n"
+         "    }\n"
+         "    single {\n"
+         "        CactusTranscriptionService(\n")
+    edit("composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/App.kt",
+         r"^import coredevices\.ring\.ui\.screens\.settings\.DefaultDestinationPromptHost\n", "")
+    edit("composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/App.kt",
+         r"^[ \t]*DefaultDestinationPromptHost\(\)\n", "")
+    nav_host = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt"
+    edit(nav_host,
+         r"^import coredevices\.(ring\.ui\.navigation\.RingRoute|coreapp\.ui\.screens\.ringonboarding\.RingOnboardingScreen"
+         r"|ring\.ui\.navigation\.addRingRoutes|ring\.ui\.screens\.IndexScreen|ring\.ui\.theme\.IndexThemeHost)\n",
+         "", expect=5)
+    edit(nav_host,
+         r"^    NavHost\(navController, startDestination = startDestination\) \{\n"
+         r"        addRingRoutes\(coreNav\)\n"
+         r"        addPebbleRoutes\(\n(?:.*\n)*?        \)\n",
+         "    NavHost(navController, startDestination = startDestination) {\n"
+         "        addPebbleRoutes(coreNav)\n")
+    edit(nav_host,
+         r"^[ \t]*composable<CommonRoutes\.RingOnboardingRoute> \{\n[ \t]*IndexThemeHost \{\n"
+         r"[ \t]*RingOnboardingScreen\(\n[ \t]*coreNav = coreNav,\n[ \t]*\)\n[ \t]*\}\n[ \t]*\}\n", "")
+    edit(nav_host, r"^[ \t]*recordingPath = route\.recordingPath,\n", "")
+    deep_links = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandler.kt"
+    edit(deep_links, r"^import coredevices\.ring\.ui\.navigation\.RingRoutes\n", "")
+    edit(deep_links, r"^[ \t]*RingRoutes\.[A-Z_]+_DEEP_LINK_PATH -> .*\n", "", expect=4)
+    edit(deep_links, r"RingRoutes\.OBJECT_DEEP_LINK_HOST", '"deep-link"')
+    edit(deep_links, r"^[ \t]*private const val ID_PARAM = RingRoutes\.OBJECT_DEEP_LINK_ID_PARAM\n", "")
+    edit(deep_links, r"^[ \t]*val id = uri\.getQueryParameter\(ID_PARAM\).*\n", "")
+    edit("composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReport.android.kt",
+         r"\nactual fun getExperimentalDebugInfoDirectory\(\): String \{\n(?:.*\n)*?\}\n", "")
+    edit("composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReport.android.kt",
+         r"^import java\.io\.File\n", "")
+    bug_report = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt"
+    edit(bug_report, r"^expect fun getExperimentalDebugInfoDirectory\(\): String\n", "")
+    edit(bug_report, r"^import androidx\.compose\.material3\.FilterChip\n", "")
+    edit(bug_report, r"^import coredevices\.util\.CoreConfigFlow\n", "")
+    edit(bug_report, r"^[ \t]*recordingPath: String\?,\n", "")
+    edit(bug_report,
+         r"^([ \t]*)// Default to an Index bug report when there are no watches stored in libpebble\.\n",
+         r"\1// Watch logs and screenshots only apply when a watch is stored.\n")
+    edit(bug_report, r"^[ \t]*val coreConfigFlow: CoreConfigFlow = koinInject\(\)\n[ \t]*val coreConfig by coreConfigFlow\.flow\.collectAsState\(\)\n", "")
+    edit(bug_report, r"^[ \t]*val \((sendRecording, setSendRecording|sendRecentRecordings, setSendRecentRecordings)\) = remember \{ .*\n", "", expect=2)
+    edit(bug_report, r"^[ \t]*(sendRecording = sendRecording|sendRecentRecordings = .*|expOutputPath = recordingPath|includeExperimentalDebugInfo = !isWatch),\n", "", expect=4)
+    edit(bug_report,
+         r"^[ \t]*if \(coreConfig\.enableIndex\) \{\n[ \t]*Text\(\"This is a:\".*\n(?:.*\n)*?"
+         r"[ \t]*label = \{ Text\(\"Watch bug\"\) \}\n[ \t]*\)\n[ \t]*\}\n[ \t]*\}\n", "")
+    edit(bug_report,
+         r"^[ \t]*if \(recordingPath != null\) \{\n(?:.*\n)*?[ \t]*\"Include recording\",\n(?:.*\n)*?[ \t]*\}\n[ \t]*\}\n", "")
+    edit(bug_report,
+         r"^[ \t]*if \(coreConfig\.enableIndex && !isWatch\) \{\n(?:.*\n)*?[ \t]*\"Include recent recordings\",\n(?:.*\n)*?[ \t]*\}\n[ \t]*\}\n", "")
+
+    # pebble: the Index tab and routes, deep links, the locker's ring default, previews.
+    routes = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/PebbleRoutes.kt"
+    edit(routes,
+         r"^[ \t]*indexScreen: @Composable \(TopBarParams, NavBarNav, CoreNav\) -> Unit,\n"
+         r"[ \t]*/\*\* A CoreNav scoped to the inner controller so RingRoute navigations\n"
+         r"[ \t]*\*  stay inside the bottom-nav chrome\. Forwarded to \[indexScreen\]\. \*/\n"
+         r"[ \t]*scopedCoreNav: CoreNav,\n", "")
+    edit(routes,
+         r"^[ \t]*composableWithAnimations<PebbleNavBarRoutes\.IndexRoute>\(viewModel\) \{\n"
+         r"[ \t]*indexScreen\(topBarParams, nav, scopedCoreNav\)\n[ \t]*\}\n", "")
+    edit(routes, r"^[ \t]*@Serializable\n[ \t]*data object IndexRoute : NavBarRoute\n\n", "")
+    edit(routes,
+         r"^    coreNav: CoreNav,\n    indexScreen: @Composable \(TopBarParams, NavBarNav, CoreNav\) -> Unit,\n"
+         r"(?:[ \t]*(?:/\*\*|\*).*\n|[ \t]*(?:addExperimentalRoutes|isInnerScopedRoute): .*\n)+\) \{\n",
+         "    coreNav: CoreNav,\n) {\n")
+    edit(routes,
+         r"WatchHomeScreen\(coreNav, indexScreen, addExperimentalRoutes, isInnerScopedRoute\)",
+         "WatchHomeScreen(coreNav)")
+    deep_link = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt"
+    edit(deep_link, r"^import coredevices\.libindex\.device\.(IndexPlatformBluetoothAssociations|REQUEST_URI_HOST)\n",
+         "", expect=2)
+    edit(deep_link,
+         r"^    /\*\*\n     \* Set when the user taps the \"Index 01 background access limited\" notification\.(?:.*\n)*?"
+         r"    val requestIndexCompanion: StateFlow<Boolean>\n", "")
+    edit(deep_link, r"^[ \t]*fun consumeRequestIndexCompanion\(\)\n\n?", "")
+    edit(deep_link,
+         r"^[ \t]*private val _requestIndexCompanion = MutableStateFlow\(false\)\n"
+         r"[ \t]*override val requestIndexCompanion: StateFlow<Boolean> = .*\n", "")
+    edit(deep_link,
+         r"^    override fun consumeRequestIndexCompanion\(\) \{\n        _requestIndexCompanion\.value = false\n    \}\n\n", "")
+    edit(deep_link, r"^[ \t]*NAVBAR_URL -> handleNavbar\(uri\.path\)\n", "")
+    edit(deep_link, r"^[ \t]*REGISTER_INDEX_COMPANION_HOST -> handleRegisterIndexCompanion\(\)\n", "")
+    edit(deep_link,
+         r"^    // Show the Watches tab and ask it to \(re-\)register the paired ring as a companion device\.\n"
+         r"    private fun handleRegisterIndexCompanion\(\): Boolean \{\n(?:.*\n)*?    \}\n\n", "")
+    edit(deep_link, r"^    private fun handleNavbar\(path: String\?\): Boolean \{\n(?:.*\n)*?    \}\n\n", "")
+    edit(deep_link, r'^[ \t]*private const val NAVBAR_URL: String = "navbar"\n', "")
+    edit(deep_link, r"^[ \t]*private val REGISTER_INDEX_COMPANION_HOST = .*\n", "")
+    edit(deep_link, r"^[ \t]*val NOTIFICATION_INTENT_URI_REGISTER_INDEX_COMPANION = .*\n", "")
+    locker = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt"
+    edit(locker, r"^import coredevices\.libindex\.(LibIndex|device\.KnownIndexDevice)\n", "", expect=2)
+    # Core opened the locker on plugins for people with a ring and no watch.
+    edit(locker,
+         r"^[ \t]*val rings by koinInject<LibIndex>\(\)\.rings\.collectAsState\(\)\n"
+         r"[ \t]*val watches by libPebble\.watches\.collectAsState\(\)\n"
+         r"[ \t]*val defaultType = if \(\n(?:.*\n)*?[ \t]*\) AppType\.Plugin else AppType\.Watchface\n"
+         r"[ \t]*LaunchedEffect\(defaultType\) \{\n(?:.*\n)*?        \}\n", "")
+    edit(locker, r"^([ \t]*)var defaultType = AppType\.Watchface\n", r"\1val defaultType = AppType.Watchface\n")
+    intro = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/PermissionsIntro.kt"
+    edit(intro, r"^import coredevices\.util\.CoreConfigHolder\n", "")
+    edit(intro, r"^import org\.koin\.compose\.koinInject\n", "")
+    edit(intro,
+         r"^[ \t]*val indexEnabled = .*\n[ \t]*val askers = when \{\n(?:.*\n)*?[ \t]*else -> (\"Watchfaces, watchapps and plugins\")\n[ \t]*\}\n",
+         r"    val askers = \1" "\n")
+    edit("pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt",
+         r"^import coredevices\.pebble\.config\.ConfigPageClosedListener\n", "")
+    edit("pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt",
+         r"^[ \t]*val closedListener: ConfigPageClosedListener = koinInject\(\)\n", "")
+    edit("pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt",
+         r"^[ \t]*runCatching \{ Uuid\.parse\(uuid\) \}\.getOrNull\(\)\?\.let\(closedListener::onConfigPageClosed\)\n", "")
+    edit("pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt",
+         r"^([ \t]*)// Opened from outside the locker \(a plugin picked as an Index destination\), nothing is cached\.\n",
+         r"\1// Opened from outside the locker, nothing is cached.\n")
+    watches_android = "pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchesScreen.android.kt"
+    edit(watches_android,
+         r"^import (androidx\.compose\.material\.icons\.Icons|androidx\.compose\.material\.icons\.outlined\.Delete"
+         r"|androidx\.compose\.material3\.(DropdownMenuItem|Icon|Text)|androidx\.compose\.runtime\.(Composable|remember)"
+         r"|androidx\.compose\.ui\.platform\.LocalContext|coredevices\.libindex\.device\.KnownIndexDevice"
+         r"|coredevices\.util\.CompanionDevice|org\.koin\.compose\.koinInject)\n", "", expect=11)
+    edit(watches_android, r"\n@Composable\nactual fun RemovePairingMenuItem\(\n(?:.*\n)*?\}\n", "")
+    preview = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt"
+    edit(preview, r"^import coredevices\.libindex\..*\n", "", expect=3)
+    edit(preview, r"^import coredevices\.util\.SecondaryProfileWarning\n", "")
+    edit(preview, r"^[ \t]*single \{ SecondaryProfileWarning\(.*\n", "")
+    edit(preview, r"^    single<LibIndex> \{\n        object : LibIndex \{\n(?:.*\n)*?        \}\n    \}\n", "")
+    edit(preview, r"^[ \t]*override val requestIndexCompanion: StateFlow<Boolean> = .*\n", "")
+    edit(preview, r"^[ \t]*override fun consumeRequestIndexCompanion\(\) \{\}\n", "")
+    edit(preview,
+         r"^        override suspend fun registerDevice\(\n            identifier: IndexIdentifier,\n(?:.*\n)*?        \}\n\n", "")
+    edit(preview,
+         r"^        override fun (hasApprovedDevice|canRemoveBond|removeBond)\(identifier: IndexIdentifier\): Boolean \{\n"
+         r"[ \t]*return (true|false)\n        \}\n\n", "", expect=3)
+    edit(settings_screen, r"^import coredevices\.EnableExperimentalDevices\n", "")
+    edit(settings_screen,
+         r"^[ \t]*val enableExperimentalDevices: EnableExperimentalDevices = koinInject\(\)\n"
+         r"[ \t]*val experimentalDevices by enableExperimentalDevices\.enabled\.collectAsState\(\)\n", "")
+    edit(settings_screen, r"^[ \t]*experimentalDevices,\n", "")
+    edit(settings_screen, r'keywords = "tabs navigation health notifications devices apps index"',
+         'keywords = "tabs navigation health notifications devices apps"')
+    edit(settings_screen,
+         r'^[ \t]*basicSettingsToggleItem\(\n[ \t]*title = "Enable Index Feed",\n(?:.*\n)*?[ \t]*\),\n(?=[ \t]*basicSettingsToggleItem\(\n[ \t]*title = "Notify when watch fully charged")',
+         "")
+    edit(settings_screen,
+         r'^[ \t]*navBarNav\?\.let \{basicSettingsActionItem\(\n[ \t]*title = "Show Ring Onboarding",\n(?:.*\n)*?[ \t]*\) \},\n', "")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -289,20 +597,15 @@ def apply(extra_abis: list[str]) -> None:
         r'\n[ \t]*<meta-data\n[ \t]*android:name="firebase_crashlytics_collection_enabled"\n[ \t]*android:value="true" />',
         "",
     )
-    # Permissions that only the Index 01 ring, Core's on-device models or nothing at all use.
-    # Each was checked against the release dex: no watch feature calls an API that needs it.
-    # WAKE_LOCK stays because WorkManager takes wake locks itself.
+    # Permissions that Core's libraries declare but nothing in Orb uses. Each was checked against
+    # the release dex: no watch feature calls an API that needs it. WAKE_LOCK stays because
+    # WorkManager takes wake locks itself. (The ring module declared more; it is removed whole.)
     unused_permissions = (
         "android.permission.BLUETOOTH_ADVERTISE",
-        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "android.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE",
         "android.permission.RUN_USER_INITIATED_JOBS",
-        "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
-        "com.android.alarm.permission.SET_ALARM",
-        "com.beeper.android.permission.READ_PERMISSION",
-        "com.beeper.android.permission.SEND_PERMISSION",
     )
     edit(
         "androidApp/src/main/AndroidManifest.xml",
@@ -312,6 +615,17 @@ def apply(extra_abis: list[str]) -> None:
             f'    <uses-permission android:name="{name}" tools:node="remove" />\n'
             for name in unused_permissions
         ),
+    )
+    # The system speech recognizer checks its caller's microphone permission even when the caller
+    # supplies the audio, so Orb's dictation needs RECORD_AUDIO. Core declared it only in the
+    # ring module's manifest, which Orb removes.
+    edit(
+        "util/src/androidMain/AndroidManifest.xml",
+        r"^    <uses-permission android:name=\"android\.permission\.RUN_USER_INITIATED_JOBS\" />\n",
+        '    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />\n'
+        "    <!-- Orb: dictation hands the watch's audio to the system speech recognizer, which still\n"
+        "         checks the caller's microphone permission. -->\n"
+        '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n',
     )
     edit(
         "androidApp/src/main/res/values/strings.xml",
@@ -443,42 +757,11 @@ def apply(extra_abis: list[str]) -> None:
     edit(android_module, r"^import com\.google\.android\.play\.core\.appupdate\.AppUpdateManagerFactory\n", "")
     edit(android_module, r"^[ \t]*factory \{ AppUpdateManagerFactory\.create\(get\(\)\) \}\n", "")
 
-    # Onboarding: Orb supports watches only and has no account to sign in to. Picking the
-    # ring in Core's flow hides the only way past the sign-in page.
-    onboarding = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/OnboardingScreen.kt"
-    edit(
-        onboarding,
-        r"^([ \t]*)viewModel\.stage\.value = OnboardingStage\.DeviceSelection\n",
-        r"\1viewModel.deviceChoice.value = DeviceChoice.Watch\n"
-        r"\1viewModel.stage.value = OnboardingStage.Permissions\n",
-    )
-    edit(
-        onboarding,
-        r"viewModel\.stage\.value = OnboardingStage\.SignIn",
-        "viewModel.stage.value = OnboardingStage.Done",
-    )
-
-    # Core's trademark rules leave "Pebble" only for saying which watches the app is for.
-    edit(onboarding, r"^import coreapp\.composeapp\.generated\.resources\.pebble_logo\n", "")
-    edit(
-        onboarding,
-        r"^([ \t]*)Image\(\n"
-        r"[ \t]*painter = painterResource\(Res\.drawable\.pebble_logo\),\n"
-        r'[ \t]*contentDescription = "description",\n'
-        r"[ \t]*colorFilter = ColorFilter\.tint\(Color\.White\),\n"
-        r"[ \t]*modifier = Modifier\.height\(50\.dp\),\n"
-        r"[ \t]*\)\n",
-        r'\1Text(text = "' + APP_LABEL + r'", fontSize = 44.sp, fontWeight = FontWeight.Bold, color = Color.White)' "\n"
-        r'\1Text(text = "for Pebble watches", color = Color.White)' "\n",
-    )
-    pebble_service = "composeApp/src/androidMain/kotlin/coredevices/coreapp/PebbleService.kt"
-    edit(pebble_service, r'NOTIFICATION_CHANNEL_NAME = "Pebble Service"', 'NOTIFICATION_CHANNEL_NAME = "Watch connection"')
-    edit(pebble_service, r'\.setContentTitle\("Pebble"\)', f'.setContentTitle("{APP_LABEL}")')
-    edit(
-        pebble_service,
-        r'\.setContentText\("Keeping Pebble connection alive"\)',
-        '.setContentText("Keeping the watch connected")',
-    )
+    # Onboarding (replaced: OnboardingScreen.kt) goes straight from the welcome page to the
+    # permissions; Orb supports watches only and has no account to sign in to. Core's trademark
+    # rules leave "Pebble" only for saying which watches the app is for, so the welcome page
+    # shows Orb's name, not the Pebble logo. The notification texts of the background service
+    # (replaced: PebbleService.kt) name Orb and the watch, not Pebble.
 
     # Core defaults to cloud speech recognition, which needs a Core account.
     edit(
@@ -596,16 +879,8 @@ def apply(extra_abis: list[str]) -> None:
         r"^\s*Section\.Battery -> PebbleNavBarRoutes\.BatterySettingsRoute\n",
         "",
     )
-    edit(
-        "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchesScreen.kt",
-        r"^[ \t]*if \(watch\.watchInfo\.platform\.isCoreDevice\(\)\) \{\n"
-        r"[ \t]*DropdownMenuItem\(\n"
-        r'[ \t]*text = \{ Text\("Battery Life"\) \},\n'
-        r"(?:.*\n)*?"
-        r"[ \t]*navBarNav\.navigateTo\(PebbleNavBarRoutes\.BatterySettingsRoute\)\n"
-        r"[ \t]*\}\n[ \t]*\)\n[ \t]*\}\n",
-        "",
-    )
+    # The Watches screen's "Battery Life" menu item is removed in its replacement
+    # (WatchesScreen.kt).
 
     # The bug-report screen can only submit to Core when signed in, but sharing the report
     # as a file works. Make sharing the main action.
@@ -666,18 +941,7 @@ def apply(extra_abis: list[str]) -> None:
         'label = { Text("Describe the problem (goes into the file)") }',
     )
 
-    # Orb has no driver for Core's Index 01 ring: its BLE library is binary-only.
-    edit(
-        "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchesScreen.kt",
-        r"^[ \t]*FloatingActionButtonMenuItem\(\n"
-        r"[ \t]*onClick = \{\n"
-        r"[ \t]*addFabExpanded = false\n"
-        r"[ \t]*uiContext\?\.let \{ ctx ->\n"
-        r"(?:.*\n)*?"
-        r'[ \t]*text = \{ Text\("Add Index 01"\) \},\n'
-        r"[ \t]*\)\n",
-        "",
-    )
+    remove_index_ring(settings_screen)
 
     if extra_abis:
         edit(

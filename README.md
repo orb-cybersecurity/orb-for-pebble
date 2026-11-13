@@ -49,8 +49,8 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   settings are hidden. Bug reports can still be saved and shared as files.
 - Mixpanel analytics, and Core's watch analytics and Memfault diagnostics uploads.
 - The Cactus speech engine, distributed only as a prebuilt binary.
-- The Index 01 ring's closed-source radio library. Ring code remains compiled,
-  but discovering and pairing rings is unavailable, and the add-ring option is hidden.
+- Support for Core's Index 01 ring. Its radio library is closed source, so Orb
+  removes the ring's code entirely and has no plans to support the ring.
 - The health library's Google Fit fallback. Health Connect remains available
   where the phone supports it.
 
