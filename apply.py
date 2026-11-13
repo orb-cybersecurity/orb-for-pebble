@@ -46,6 +46,8 @@ REPLACED = {
         "f4a6756127386188a4db9ff9a4d3d679db0c8c1dcee9edef988eea6149f1ce7f",
     "util/src/androidMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.android.kt":
         "4b95f649c8dd2a5e2e3c6e3a19f9c05836d64315d0a75f8aa096201ff5819d36",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/Memfault.kt":
+        "9dda6ccec279bb6501975833de97476fadbdd6f41d0ba93623fafe1ed6ff136b",
     "util/src/androidMain/res/mipmap-anydpi-v26/ic_launcher.xml":
         "9c3a7e0a6515c6e1a7ae834a9ae430311ebc3241f7b2e5e7f0460aa690709a7c",
     "util/src/androidMain/res/values/ic_launcher_background.xml":
@@ -61,6 +63,10 @@ REMOVED = [
     "models",
     "composeApp/src/androidMain/assets/models/needle-pebble-ft-cq4.zip",
     "androidApp/src/google-services-dummy.json",
+    # Core's telemetry uploads: the analytics heartbeat and Memfault diagnostics (see apply()).
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/AnalyticsIngest.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/AnalyticsHeartbeatQueue.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/MemfaultChunkQueue.kt",
     "util/src/androidMain/ic_launcher-playstore.png",
     "composeApp/src/commonMain/composeResources/drawable/pebble-logo.png",
     *(f"util/src/androidMain/res/mipmap-{d}/ic_launcher_foreground.webp"
@@ -344,6 +350,45 @@ def apply(extra_abis: list[str]) -> None:
         r'"proguard-rules\.pro"\)',
         '"proguard-rules.pro", "../orb/orb-proguard-rules.pro")',
     )
+
+    # Core's telemetry: the watch's analytics heartbeats and Memfault diagnostic chunks, queued
+    # in the database and uploaded to Core and to Memfault. Orb builds have no endpoint or key
+    # for either, so the code could never send anything; it is removed rather than left inert.
+    # The upload classes are in REMOVED and Memfault.kt is replaced by its serial helper. The
+    # watch still hands the data over through libpebble3's WebServices; Orb drops it there.
+    # The heartbeat table stays in Core's database so its schema needs no migration.
+    services = "pebble/src/commonMain/kotlin/coredevices/pebble/services"
+    edit(watch_module_path := "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt",
+         r"^import coredevices\.pebble\.services\.(Memfault|AnalyticsHeartbeatQueue|AnalyticsIngest|MemfaultChunkQueue)\n",
+         "", expect=4)
+    edit(watch_module_path,
+         r"^[ \t]*singleOf\(::(Memfault|MemfaultChunkQueue|AnalyticsIngest|AnalyticsHeartbeatQueue)\)\n",
+         "", expect=4)
+    firmware_check = "pebble/src/commonMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateCheck.kt"
+    edit(firmware_check, r"^import coredevices\.pebble\.services\.Memfault\n", "")
+    edit(firmware_check, r"^[ \t]*private val memfault: Memfault,\n", "")
+    delegate = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleAppDelegate.kt"
+    edit(delegate, r"^import coredevices\.pebble\.services\.(AnalyticsHeartbeatQueue|MemfaultChunkQueue)\n",
+         "", expect=2)
+    edit(delegate, r"^[ \t]*private val (memfaultChunkQueue: MemfaultChunkQueue|analyticsHeartbeatQueue: AnalyticsHeartbeatQueue),\n",
+         "", expect=2)
+    edit(delegate, r"^[ \t]*(memfaultChunkQueue|analyticsHeartbeatQueue)\.startProcessing\(GlobalScope\)\n",
+         "", expect=2)
+    edit(delegate,
+         r"^[ \t]*scope\.launch \{\n[ \t]*(memfaultChunkQueue|analyticsHeartbeatQueue)\.uploadPendingFromDb\(\)\n[ \t]*\},\n",
+         "", expect=2)
+    web_services = f"{services}/PebbleWebServices.kt"
+    edit(web_services, r"^import coredevices\.pebble\.services\.Memfault\.Companion\.serialForMemfault\n", "")
+    edit(web_services, r"^[ \t]*private val (memfaultChunkQueue: MemfaultChunkQueue|analyticsHeartbeatQueue: AnalyticsHeartbeatQueue),\n",
+         "", expect=2)
+    edit(web_services,
+         r"(override fun uploadMemfaultChunk\(chunk: ByteArray, watchInfo: WatchInfo\) \{\n)"
+         r"[ \t]*memfaultChunkQueue\.enqueue\(watchInfo\.serialForMemfault\(\), chunk\)\n",
+         r"\1        // Orb: Core's telemetry is removed; the watch's diagnostics are dropped here.\n")
+    edit(web_services,
+         r"(override fun uploadAnalyticsHeartbeat\(payload: ByteArray, watchInfo: WatchInfo\) \{\n)"
+         r"[ \t]*analyticsHeartbeatQueue\.enqueue\(\n(?:[ \t]*[a-zA-Z]+ = [^\n]*\n){3}[ \t]*\)\n",
+         r"\1        // Orb: Core's telemetry is removed; the watch's analytics are dropped here.\n")
 
     # The health library falls back to Google Fit, which needs Google Play services, on phones
     # without Health Connect. Switch the fallback off and drop its activity.

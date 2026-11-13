@@ -38,7 +38,7 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
 - Core accounts and features that require them: cloud locker sync, submitting
   bug reports to Core, battery history and cloud speech recognition. Their
   settings are hidden. Bug reports can still be saved and shared as files.
-- Mixpanel analytics.
+- Mixpanel analytics, and Core's watch analytics and Memfault diagnostics uploads.
 - The Cactus speech engine, distributed only as a prebuilt binary.
 - The Index 01 ring's closed-source radio library. Ring code remains compiled,
   but discovering and pairing rings is unavailable, and the add-ring option is hidden.
@@ -74,9 +74,9 @@ Services Orb is known to contact include:
 Links also open Core's documentation pages. A full audit of every host the app can
 reach is in progress; this list will be completed as part of it.
 
-Mixpanel is removed. Core's analytics heartbeat and Memfault diagnostics uploads
-remain in the code, but Orb builds configure no endpoint or key for them, so
-they send nothing.
+Orb sends no telemetry. Mixpanel analytics is removed, and so is the code for
+Core's own telemetry: the watch analytics heartbeat and Memfault diagnostics
+uploads. Data the watch offers for them is dropped on the phone.
 
 ## Installing
 
