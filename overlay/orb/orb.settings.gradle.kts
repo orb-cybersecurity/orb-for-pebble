@@ -1,7 +1,7 @@
-// Orb for Pebble: wires the stand-in modules under orb/ into Core's build.
+// Orb for Pebble: wires the modules Orb builds from source, under orb/, into Core's build.
 // Applied from the end of settings.gradle.kts by apply.py.
 
-listOf("firebase-stubs", "speex", "speex-native").forEach { name ->
+listOf("speex", "speex-native").forEach { name ->
     include(":$name")
     project(":$name").projectDir = rootDir.resolve("orb/$name")
 }
@@ -11,18 +11,13 @@ listOf("firebase-stubs", "speex", "speex-native").forEach { name ->
 gradle.lifecycle.beforeProject {
     configurations.configureEach {
         resolutionStrategy.dependencySubstitution {
-            listOf(
-                "dev.gitlive:firebase-auth",
-                "dev.gitlive:firebase-firestore",
-                "dev.gitlive:firebase-storage",
-                "dev.gitlive:firebase-common-internal",
-            ).forEach { substitute(module(it)).using(project(":firebase-stubs")) }
             // Built from source; see orb/speex.
             substitute(module("io.github.coredevices.speex:speex")).using(project(":speex"))
         }
         // Nothing may bring these back transitively.
         listOf(
             "com.google.firebase",
+            "dev.gitlive",
             "com.google.android.gms",
             "com.google.android.play",
             "com.google.android.libraries.identity.googleid",

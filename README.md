@@ -44,9 +44,10 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
 
 - Firebase sign-in, Firestore, Storage, Crashlytics and Cloud Messaging;
   Google sign-in; and Google Play in-app updates.
-- Core accounts and features that require them: cloud locker sync, submitting
-  bug reports to Core, battery history and cloud speech recognition. Their
-  settings are hidden. Bug reports can still be saved and shared as files.
+- Core accounts and features that require them: submitting bug reports to Core
+  and its support chat, battery history, messaging app developers through Core's
+  store, and cloud speech recognition. Their code is removed, not hidden. Bug
+  reports can still be saved and shared as files.
 - Mixpanel analytics, and Core's watch analytics and Memfault diagnostics uploads.
 - The Cactus speech engine, distributed only as a prebuilt binary.
 - Support for Core's Index 01 ring. Its radio library is closed source, so Orb
@@ -60,6 +61,10 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   link must use https and names the server it would switch to; watchapps and language
   packs are named before anything is installed, and a watchapp that would replace an
   installed one says so.
+- **Locker:** Core keeps the list of your store apps in its cloud under a Core
+  account. Orb keeps it on the phone. Signed in to Rebble, Orb brings in your
+  Rebble locker. A sync refreshes apps from the store they came from and never
+  removes an installed app.
 - **Firmware updates for Core watches:** Orb uses Core's public GitHub releases
   because Core's update server requires an account. Older Pebble watches still
   update through Rebble. A version can be pinned under Settings → Debug after
@@ -148,9 +153,9 @@ Core's source is pinned as a submodule. `apply.py` applies Orb's overlay and edi
 and stops if the upstream files no longer match the expected versions.
 `tools/check_apk.py` checks the APK for code Orb must not ship.
 
-The stand-in modules use the same class names as the libraries they replace,
-allowing Core's code to compile unmodified. This approach comes from
-[Gravel](https://github.com/david-cant-code/pebble-app-degoogled).
+Orb removes the code that needs Google services or a Core account instead of
+stubbing it out, so nothing in the app only pretends to work. Speex, which Core
+ships as a prebuilt library, is built from source.
 
 ## Contributing
 

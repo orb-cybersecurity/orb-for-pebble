@@ -178,12 +178,17 @@ REMOVED = [
     "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreKnownWatchesSync.kt",
     "pebble/src/commonMain/kotlin/coredevices/pebble/account/PermissionSettingsSync.kt",
     "pebble/src/commonTest/kotlin/coredevices/pebble/account/PermissionSettingsSyncTest.kt",
+    # The last code that needed a Core sign-in token (see remove_firebase()).
+    "util/src/commonMain/kotlin/coredevices/api/ApiClient.kt",
+    "util/src/commonMain/kotlin/coredevices/api/ApiAuthException.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/plugin/HostedPluginOAuthApi.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
 DROPPED_ACCESSORS = (
     r"libs\.(?:firebase\.bom|firebase\.crashlytics(?:\.ndk)?|gms\.auth|identity\.google"
     r"|play\.update(?:\.ktx)?|crashkios|mixpanel\.android|kmpnotifier"
+    r"|firebase\.(?:auth|firestore|storage|common\.internal)"
     r"|plugins\.googleServices|plugins\.firebaseCrashlytics)\b"
 )
 
@@ -1395,6 +1400,43 @@ def remove_core_account() -> None:
     edit(analytics, r'^[ \t]*HeartbeatMetric\("core_user_id", Firebase\.auth\.currentUser\?\.emailOrNull \?: "<none>"\) \+\n', "")
 
 
+def remove_firebase() -> None:
+    """Remove the last uses of Firebase, so Orb builds without it or a stand-in for it.
+
+    What was left needed a signed-in Core user, and there never is one: the Firestore setup
+    nothing reads any more, the sign-in token libpebble was handed (always empty), Core's hosted
+    OAuth broker for phone plugins (every call failed for want of a user) and an unused client
+    for Core's firmware server. The Firebase libraries leave the build (DROPPED_ACCESSORS), and
+    Orb's stand-in module for them is gone.
+    """
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    remove_kotlin_block(util_module, r"^    single<FirebaseFirestore> \{")
+    edit(util_module,
+         r"^import dev\.gitlive\.firebase\.(Firebase|firestore\.(FirebaseFirestore|FirebaseFirestoreSettings"
+         r"|firestore|firestoreSettings|persistentCacheSettings))\n",
+         "", expect=6)
+
+    watch_module = "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt"
+    # libpebble's sign-in token for Core's services: always empty without a Core user. The
+    # plugin OAuth broker is left out, so plugins see no OAuth bridge instead of a failing one.
+    edit(watch_module,
+         r"flow \{ emitAll\(Firebase\.auth\.idTokenChanged\) \}\n"
+         r"[ \t]*\.map \{ try \{ it\?\.getIdToken\(false\) \}.*\n"
+         r"[ \t]*\.stateIn\(GlobalScope, started = SharingStarted\.Lazily, initialValue = null\),\n"
+         r"([ \t]*get\(\),\n[ \t]*get\(\),\n)[ \t]*get\(\),\n",
+         r"kotlinx.coroutines.flow.MutableStateFlow<String?>(null),\n\1")
+    edit(watch_module, r"^    singleOf\(::HostedPluginOAuthApi\) bind PluginOAuthApi::class\n", "")
+    edit(watch_module,
+         r"^import (coredevices\.pebble\.plugin\.HostedPluginOAuthApi|dev\.gitlive\.firebase\.(Firebase|auth\.auth)"
+         r"|io\.rebble\.libpebblecommon\.plugin\.PluginOAuthApi)\n",
+         "", expect=4)
+
+    remove_kotlin_block(
+        "util/src/commonMain/kotlin/coredevices/api/EngDashOtaApi.kt",
+        r"^class EngDashOtaApiImpl\(\n    private val baseUrl: String = BASE_URL,\n"
+        r"\) : ApiClient\(CommonBuildKonfig\.USER_AGENT_VERSION\), EngDashOtaApi \{")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1823,6 +1865,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_crashlytics()
     remove_cloud_locker()
     remove_core_account()
+    remove_firebase()
 
     if extra_abis:
         edit(
