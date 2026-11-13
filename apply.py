@@ -62,6 +62,7 @@ REMOVED = [
     "composeApp/src/androidMain/assets/models/needle-pebble-ft-cq4.zip",
     "androidApp/src/google-services-dummy.json",
     "util/src/androidMain/ic_launcher-playstore.png",
+    "composeApp/src/commonMain/composeResources/drawable/pebble-logo.png",
     *(f"util/src/androidMain/res/mipmap-{d}/ic_launcher_foreground.webp"
       for d in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi")),
 ]
@@ -364,6 +365,28 @@ def apply(extra_abis: list[str]) -> None:
         onboarding,
         r"viewModel\.stage\.value = OnboardingStage\.SignIn",
         "viewModel.stage.value = OnboardingStage.Done",
+    )
+
+    # Core's trademark rules leave "Pebble" only for saying which watches the app is for.
+    edit(onboarding, r"^import coreapp\.composeapp\.generated\.resources\.pebble_logo\n", "")
+    edit(
+        onboarding,
+        r"^([ \t]*)Image\(\n"
+        r"[ \t]*painter = painterResource\(Res\.drawable\.pebble_logo\),\n"
+        r'[ \t]*contentDescription = "description",\n'
+        r"[ \t]*colorFilter = ColorFilter\.tint\(Color\.White\),\n"
+        r"[ \t]*modifier = Modifier\.height\(50\.dp\),\n"
+        r"[ \t]*\)\n",
+        r'\1Text(text = "' + APP_LABEL + r'", fontSize = 44.sp, fontWeight = FontWeight.Bold, color = Color.White)' "\n"
+        r'\1Text(text = "for Pebble watches", color = Color.White)' "\n",
+    )
+    pebble_service = "composeApp/src/androidMain/kotlin/coredevices/coreapp/PebbleService.kt"
+    edit(pebble_service, r'NOTIFICATION_CHANNEL_NAME = "Pebble Service"', 'NOTIFICATION_CHANNEL_NAME = "Watch connection"')
+    edit(pebble_service, r'\.setContentTitle\("Pebble"\)', f'.setContentTitle("{APP_LABEL}")')
+    edit(
+        pebble_service,
+        r'\.setContentText\("Keeping Pebble connection alive"\)',
+        '.setContentText("Keeping the watch connected")',
     )
 
     # Core defaults to cloud speech recognition, which needs a Core account.
