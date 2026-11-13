@@ -307,12 +307,35 @@ fun WatchHomeScreen(
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = deepLinkHandler::confirmPendingBootConfig) {
+                    TextButton(onClick = { deepLinkHandler.confirmPendingBootConfig(pending) }) {
                         Text("Allow")
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = deepLinkHandler::dismissPendingBootConfig) {
+                        Text("Cancel")
+                    }
+                },
+            )
+        }
+        val pendingLanguagePack by deepLinkHandler.pendingLanguagePack.collectAsState()
+        pendingLanguagePack?.let { pending ->
+            AlertDialog(
+                onDismissRequest = deepLinkHandler::dismissPendingLanguagePack,
+                title = { Text("Install language pack?") },
+                text = {
+                    Text(
+                        "Another app sent the language pack \"${pending.name}\". Install it on " +
+                                "your watch? Only install language packs from sources you trust."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { deepLinkHandler.confirmPendingLanguagePack(pending) }) {
+                        Text("Install")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = deepLinkHandler::dismissPendingLanguagePack) {
                         Text("Cancel")
                     }
                 },

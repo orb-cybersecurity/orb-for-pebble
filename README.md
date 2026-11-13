@@ -56,6 +56,10 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
 
 ### Replaced
 
+- **Links and files from other apps:** Orb asks before acting on them. A Rebble sign-in
+  link must use https and names the server it would switch to; watchapps and language
+  packs are named before anything is installed, and a watchapp that would replace an
+  installed one says so.
 - **Firmware updates for Core watches:** Orb uses Core's public GitHub releases
   because Core's update server requires an account. Older Pebble watches still
   update through Rebble. A version can be pinned under Settings → Debug after

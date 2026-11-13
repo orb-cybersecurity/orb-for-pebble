@@ -502,39 +502,110 @@ def remove_index_ring(settings_screen: str) -> None:
     edit(settings_screen,
          r'^[ \t]*navBarNav\?\.let \{basicSettingsActionItem\(\n[ \t]*title = "Show Ring Onboarding",\n(?:.*\n)*?[ \t]*\) \},\n', "")
 
+    # The ring's Notion sign-in callback (voiceapp://) and its label.
+    edit("androidApp/src/main/AndroidManifest.xml",
+         r'^[ \t]*<intent-filter android:label="@string/intent_filter_notion_login">\n'
+         r'(?:(?!</intent-filter>).*\n)*?[ \t]*<data android:scheme="voiceapp" />\n[ \t]*</intent-filter>\n', "")
+    edit("androidApp/src/main/res/values/strings.xml",
+         r'^[ \t]*<string name="intent_filter_notion_login">Notion Linking</string>\n', "")
+
+
+def replace_literal(path: str, old: str, new: str, expect: int = 1) -> None:
+    """Literal (non-regex) replacement in one file that must match exactly `expect` times."""
+    file = APP / path
+    text = file.read_text()
+    count = text.count(old)
+    if count != expect:
+        raise ApplyError(f"{path}: expected {expect} occurrence(s) of {old!r}, found {count}")
+    file.write_text(text.replace(old, new))
+
 
 def confirm_external_input() -> None:
     """Links and files from outside the app take effect only after the user confirms them.
 
-    The boot-config confirmation dialog itself is in Orb's WatchHomeScreen.kt overlay.
+    - A custom-boot-config-url link must be https with a plain ASCII host; Orb shows the host
+      and switches the Rebble account only once the user allows it.
+    - A watchapp (.pbw) or language pack (.pbl) another app sends is installed only once the
+      user confirms it by name; a watchapp replacing an installed one says so.
+    - One request at a time, each in its own file, so what the user approves is what installs.
+    The dialogs for boot configs and language packs are in Orb's WatchHomeScreen.kt overlay.
     """
+    # Every file opened from outside gets its own path; a later one can't overwrite it.
+    replace_literal(
+        "pebble/src/androidMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.android.kt",
+        'val fileToWrite = getTempFilePath(appContext, "sideloaded_file")',
+        'val fileToWrite = getTempFilePath(appContext, "sideloaded_file_${kotlin.uuid.Uuid.random()}")',
+    )
+
     handler = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt"
-    edit(handler,
-         r"^(    val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload\?>\n)",
-         r"\1\n"
-         "    /** A boot-config link waiting for the user to approve its host. */\n"
-         "    val pendingBootConfig: StateFlow<PendingBootConfig?>\n"
-         "    fun confirmPendingBootConfig()\n"
-         "    fun dismissPendingBootConfig()\n")
-    edit(handler,
-         r"^(data class PendingFirmwareSideload\(val file: Path, val fileName: String\)\n)",
-         r"\1" "data class PendingBootConfig(val path: String, val token: String, val host: String)\n")
-    edit(handler,
-         r"^(    private var reservedSideloadCount = 0\n)",
-         r"\1"
-         "    private val _pendingBootConfig = MutableStateFlow<PendingBootConfig?>(null)\n"
-         "    override val pendingBootConfig: StateFlow<PendingBootConfig?> = _pendingBootConfig.asStateFlow()\n"
-         "\n"
-         "    override fun confirmPendingBootConfig() {\n"
-         "        val pending = _pendingBootConfig.value ?: return\n"
-         "        _pendingBootConfig.value = null\n"
-         "        applyBootConfig(pending.token, pending.path)\n"
-         "    }\n"
-         "\n"
-         "    override fun dismissPendingBootConfig() {\n"
-         "        _pendingBootConfig.value = null\n"
-         "    }\n")
-    # handleBootConfig: validate, then park the link for confirmation; the body that used to
+    replace_literal(handler, "    val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload?>\n", """\
+    val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload?>
+
+    /** A boot-config link waiting for the user to approve its host. */
+    val pendingBootConfig: StateFlow<PendingBootConfig?>
+    fun confirmPendingBootConfig(expected: PendingBootConfig)
+    fun dismissPendingBootConfig()
+
+    /** A language pack from another app waiting for the user to confirm it. */
+    val pendingLanguagePack: StateFlow<PendingLanguagePack?>
+    fun confirmPendingLanguagePack(expected: PendingLanguagePack)
+    fun dismissPendingLanguagePack()
+""")
+    replace_literal(handler, "data class PendingFirmwareSideload(val file: Path, val fileName: String)\n", """\
+data class PendingFirmwareSideload(val file: Path, val fileName: String)
+data class PendingBootConfig(val path: String, val token: String, val host: String)
+data class PendingLanguagePack(val file: Path, val name: String)
+
+/** A name from a file or package, made safe to show: no control or formatting characters, one short line. */
+fun orbDisplayName(raw: String, max: Int = 64): String {
+    val cleaned = raw.filter {
+        it.category !in setOf(
+            CharCategory.CONTROL, CharCategory.FORMAT, CharCategory.LINE_SEPARATOR,
+            CharCategory.PARAGRAPH_SEPARATOR, CharCategory.PRIVATE_USE,
+        )
+    }.replace(Regex("\\\\s+"), " ").trim()
+    return if (cleaned.length > max) cleaned.take(max - 1) + "…" else cleaned
+}
+""")
+    replace_literal(handler, "    private var reservedSideloadCount = 0\n", """\
+    private var reservedSideloadCount = 0
+    private val _pendingBootConfig = MutableStateFlow<PendingBootConfig?>(null)
+    override val pendingBootConfig: StateFlow<PendingBootConfig?> = _pendingBootConfig.asStateFlow()
+
+    override fun confirmPendingBootConfig(expected: PendingBootConfig) {
+        // Only the request the user was shown.
+        if (!_pendingBootConfig.compareAndSet(expected, null)) return
+        applyBootConfig(expected.token, expected.path)
+    }
+
+    override fun dismissPendingBootConfig() {
+        _pendingBootConfig.value = null
+    }
+
+    private val _pendingLanguagePack = MutableStateFlow<PendingLanguagePack?>(null)
+    override val pendingLanguagePack: StateFlow<PendingLanguagePack?> = _pendingLanguagePack.asStateFlow()
+
+    override fun confirmPendingLanguagePack(expected: PendingLanguagePack) {
+        if (!_pendingLanguagePack.compareAndSet(expected, null)) return
+        val connectedWatch =
+            libPebble.watches.value.filterIsInstance<ConnectedPebble.Language>().firstOrNull()
+        if (connectedWatch == null) {
+            logger.w { "handleLanguagePack: no connected watch" }
+            _snackBarMessages.tryEmit("Failed to load language pack: no connected watch")
+            SystemFileSystem.delete(expected.file, mustExist = false)
+            return
+        }
+        _snackBarMessages.tryEmit("Installing language pack...")
+        connectedWatch.installLanguagePack(expected.file, expected.name)
+    }
+
+    override fun dismissPendingLanguagePack() {
+        val pending = _pendingLanguagePack.value ?: return
+        _pendingLanguagePack.value = null
+        SystemFileSystem.delete(pending.file, mustExist = false)
+    }
+""")
+    # Boot config: validate, then park the link for confirmation (one at a time); what used to
     # run at once becomes applyBootConfig, called only from confirmPendingBootConfig.
     edit(handler,
          r"^(    private fun handleBootConfig\(path: String\?\): Boolean \{\n"
@@ -549,98 +620,148 @@ def confirm_external_input() -> None:
          r"(?:            .*\n)*?"
          r"        \}\n)"
          r"        return true\n",
-         r"\1"
-         "        val host = bootConfigHost(path)\n"
-         "        if (host == null) {\n"
-         "            logger.w(\"boot config link is not an https URL with a host\")\n"
-         "            _snackBarMessages.tryEmit(\"Ignored a sign-in link that doesn't use https\")\n"
-         "            return false\n"
-         "        }\n"
-         "        _pendingBootConfig.value = PendingBootConfig(path = path, token = token, host = host)\n"
-         "        navigateToTab(PebbleNavBarRoutes.WatchesRoute)\n"
-         "        return true\n"
-         "    }\n"
-         "\n"
-         "    private fun applyBootConfig(token: String, path: String) {\n"
-         r"\2")
-    edit(handler,
-         r"^(        internal fun parseTokenFrom\(path: String\?\): String\? \{\n)",
-         "        /** Host (with any explicit port) of a boot-config link's URL; null unless it is https. */\n"
-         "        internal fun bootConfigHost(path: String): String? {\n"
-         "            val url = com.eygraber.uri.Uri.parseOrNull(path.removePrefix(\"/\")) ?: return null\n"
-         "            if (!url.scheme.equals(\"https\", ignoreCase = true)) return null\n"
-         "            val host = url.host?.takeIf { it.isNotBlank() } ?: return null\n"
-         "            return if (url.port > 0) \"$host:${url.port}\" else host\n"
-         "        }\n"
-         "\n"
-         r"\1")
+         lambda m: m.group(1) + """\
+        val host = bootConfigHost(path)
+        if (host == null) {
+            logger.w("boot config link is not https with a plain host name")
+            _snackBarMessages.tryEmit("Ignored a sign-in link: it must use https and a plain server name")
+            return false
+        }
+        if (_pendingBootConfig.value != null) {
+            logger.w("boot config link ignored: another one is waiting for the user")
+            return false
+        }
+        _pendingBootConfig.value = PendingBootConfig(path = path, token = token, host = host)
+        navigateToTab(PebbleNavBarRoutes.WatchesRoute)
+        return true
+    }
 
-    # A watchapp file sent by another app: confirm, naming it, before anything is installed.
+    private fun applyBootConfig(token: String, path: String) {
+""" + m.group(2))
+    replace_literal(handler, "        internal fun parseTokenFrom(path: String?): String? {\n", """\
+        /**
+         * Host (with any explicit port) of a boot-config link's URL. Null unless it is https with
+         * no user info and a plain ASCII host name, so the name shown is the one connected to.
+         */
+        internal fun bootConfigHost(path: String): String? {
+            val url = com.eygraber.uri.Uri.parseOrNull(path.removePrefix("/")) ?: return null
+            if (!url.scheme.equals("https", ignoreCase = true)) return null
+            if (url.encodedUserInfo != null) return null
+            if (url.encodedAuthority?.contains('%') != false) return null
+            val host = url.host ?: return null
+            if (!Regex("[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?").matches(host)) return null
+            return if (url.port > 0) "$host:${url.port}" else host
+        }
+
+        internal fun parseTokenFrom(path: String?): String? {
+""")
+    # Language packs: park for confirmation instead of installing at once.
+    edit(handler,
+         r"^(        val file = writeFile\(context, uri\)\n"
+         r"        if \(file == null\) \{\n"
+         r"            logger\.w \{ \"handleLanguagePack: couldn't write file\" \}\n"
+         r"            _snackBarMessages\.tryEmit\(\"Failed to load language pack file\"\)\n"
+         r"            return false\n"
+         r"        \}\n)"
+         r"        val connectedWatch =\n(?:.*\n)*?        connectedWatch\.installLanguagePack\(file, name\)\n"
+         r"        return true\n",
+         lambda m: m.group(1) + """\
+        if (_pendingLanguagePack.value != null) {
+            SystemFileSystem.delete(file, mustExist = false)
+            return false
+        }
+        _pendingLanguagePack.value = PendingLanguagePack(file, orbDisplayName(name))
+        navigateToTab(PebbleNavBarRoutes.WatchesRoute)
+        return true
+""")
+
+    # Watchapps another app sends: confirm by name (and what it replaces) before installing.
     locker = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt"
-    edit(locker,
-         r"^(        val pendingAppSideload by deepLinks\.pendingAppSideload\.collectAsState\(\)\n)",
-         "        var externalSideload by remember { mutableStateOf<Pair<Path, String?>?>(null) }\n"
-         "        externalSideload?.let { (path, name) ->\n"
-         "            fun discard() {\n"
-         "                externalSideload = null\n"
-         "                SystemFileSystem.delete(path, mustExist = false)\n"
-         "            }\n"
-         "            androidx.compose.material3.AlertDialog(\n"
-         "                onDismissRequest = ::discard,\n"
-         "                title = { Text(if (name != null) \"Install watchapp?\" else \"Can't install this file\") },\n"
-         "                text = {\n"
-         "                    Text(\n"
-         "                        if (name != null) {\n"
-         "                            \"Another app sent \\\"$name\\\". Install it on your watch? Only \" +\n"
-         "                                \"install watchapps from sources you trust.\"\n"
-         "                        } else {\n"
-         "                            \"Another app sent a file that isn't a readable watchapp.\"\n"
-         "                        }\n"
-         "                    )\n"
-         "                },\n"
-         "                confirmButton = {\n"
-         "                    if (name != null) {\n"
-         "                        androidx.compose.material3.TextButton(onClick = {\n"
-         "                            externalSideload = null\n"
-         "                            sideload(path)\n"
-         "                        }) { Text(\"Install\") }\n"
-         "                    } else {\n"
-         "                        androidx.compose.material3.TextButton(onClick = ::discard) { Text(\"OK\") }\n"
-         "                    }\n"
-         "                },\n"
-         "                dismissButton = {\n"
-         "                    if (name != null) {\n"
-         "                        androidx.compose.material3.TextButton(onClick = ::discard) { Text(\"Cancel\") }\n"
-         "                    }\n"
-         "                },\n"
-         "            )\n"
-         "        }\n"
-         r"\1")
-    edit(locker,
-         r"^(            pendingAppSideload\?\.let \{\n"
-         r"                deepLinks\.consumePendingAppSideload\(\)\n)"
-         r"                sideload\(it\)\n",
-         r"\1"
-         "                // In the screen's scope: consuming the sideload restarts this effect.\n"
-         "                scope.launch {\n"
-         "                    val name = withContext(Dispatchers.IO) {\n"
-         "                        try {\n"
-         "                            PbwApp(it).info.let { info -> info.longName.ifBlank { info.shortName } }\n"
-         "                                .ifBlank { null }\n"
-         "                        } catch (e: Exception) {\n"
-         "                            null\n"
-         "                        }\n"
-         "                    }\n"
-         "                    externalSideload = it to name\n"
-         "                }\n")
+    replace_literal(locker, "import kotlin.uuid.Uuid\n",
+                    "import kotlin.uuid.Uuid\nimport kotlinx.coroutines.flow.first\n")
+    replace_literal(locker, "        val pendingAppSideload by deepLinks.pendingAppSideload.collectAsState()\n", """\
+        // (file, name or null if unreadable, title of the installed app it replaces)
+        var externalSideload by remember { mutableStateOf<Triple<Path, String?, String?>?>(null) }
+        externalSideload?.let { (path, name, replaces) ->
+            fun discard() {
+                externalSideload = null
+                SystemFileSystem.delete(path, mustExist = false)
+            }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = ::discard,
+                title = { Text(if (name != null) "Install watchapp?" else "Can't install this file") },
+                text = {
+                    Text(
+                        when {
+                            name == null -> "Another app sent a file that isn't a readable watchapp."
+                            replaces != null -> "Another app sent \\"$name\\". Installing it replaces " +
+                                "\\"$replaces\\" on your watch, and it keeps that app's permissions and " +
+                                "data. Only install watchapps from sources you trust."
+                            else -> "Another app sent \\"$name\\". Install it on your watch? Only " +
+                                "install watchapps from sources you trust."
+                        }
+                    )
+                },
+                confirmButton = {
+                    if (name != null) {
+                        androidx.compose.material3.TextButton(onClick = {
+                            externalSideload = null
+                            sideload(path)
+                        }) { Text("Install") }
+                    } else {
+                        androidx.compose.material3.TextButton(onClick = ::discard) { Text("OK") }
+                    }
+                },
+                dismissButton = {
+                    if (name != null) {
+                        androidx.compose.material3.TextButton(onClick = ::discard) { Text("Cancel") }
+                    }
+                },
+            )
+        }
+        val pendingAppSideload by deepLinks.pendingAppSideload.collectAsState()
+""")
+    replace_literal(locker, """\
+            pendingAppSideload?.let {
+                deepLinks.consumePendingAppSideload()
+                sideload(it)
+""", """\
+            pendingAppSideload?.let {
+                deepLinks.consumePendingAppSideload()
+                // In the screen's scope: consuming the sideload restarts this effect.
+                scope.launch {
+                    if (externalSideload != null) {
+                        // One at a time; the user is deciding on another file.
+                        SystemFileSystem.delete(it, mustExist = false)
+                        return@launch
+                    }
+                    val info = withContext(Dispatchers.IO) {
+                        try {
+                            PbwApp(it).info
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    val name = info?.let { i -> coredevices.pebble.orbDisplayName(i.longName.ifBlank { i.shortName }) }
+                        ?.ifBlank { null }
+                    val replaces = info?.let { i -> Uuid.parseOrNull(i.uuid) }
+                        ?.let { uuid -> libPebble.getLockerApp(uuid).first() }
+                        ?.let { app -> coredevices.pebble.orbDisplayName(app.properties.title) }
+                    externalSideload = Triple(it, name, replaces)
+                }
+""")
 
     # The preview stand-in implements the handler interface too.
-    edit("pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt",
-         r"^(        override val pendingAppSideload: StateFlow<Path\?> = MutableStateFlow\(null\)\n)",
-         r"\1"
-         "        override val pendingBootConfig: StateFlow<coredevices.pebble.PendingBootConfig?> = MutableStateFlow(null)\n"
-         "        override fun confirmPendingBootConfig() {}\n"
-         "        override fun dismissPendingBootConfig() {}\n")
+    replace_literal("pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt",
+        "        override val pendingAppSideload: StateFlow<Path?> = MutableStateFlow(null)\n", """\
+        override val pendingAppSideload: StateFlow<Path?> = MutableStateFlow(null)
+        override val pendingBootConfig: StateFlow<coredevices.pebble.PendingBootConfig?> = MutableStateFlow(null)
+        override fun confirmPendingBootConfig(expected: coredevices.pebble.PendingBootConfig) {}
+        override fun dismissPendingBootConfig() {}
+        override val pendingLanguagePack: StateFlow<coredevices.pebble.PendingLanguagePack?> = MutableStateFlow(null)
+        override fun confirmPendingLanguagePack(expected: coredevices.pebble.PendingLanguagePack) {}
+        override fun dismissPendingLanguagePack() {}
+""")
 
 
 def apply(extra_abis: list[str]) -> None:
