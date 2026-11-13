@@ -285,6 +285,17 @@ def apply(extra_abis: list[str]) -> None:
         'signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile?.exists() == true }',
         expect=(0, 1),
     )
+    # Ship prebuilt native libraries as their AARs have them. Stripping uses whatever NDK the
+    # machine has (F-Droid's build server has none), which would make the APK differ by machine
+    # and rule out a reproducible, developer-signed release.
+    edit(
+        "androidApp/build.gradle.kts",
+        r"^    packaging \{\n",
+        "    packaging {\n"
+        "        jniLibs {\n"
+        '            keepDebugSymbols += "**/*.so"\n'
+        "        }\n",
+    )
     # The Gradle plugin otherwise embeds a dependency list encrypted to a Google key.
     edit(
         "androidApp/build.gradle.kts",
