@@ -32,10 +32,6 @@ APP_LABEL = "Orb"
 # Upstream files the overlay replaces outright, with the sha256 of the upstream version each
 # replacement was written against.
 REPLACED = {
-    "composeApp/src/androidMain/kotlin/coredevices/coreapp/auth/GoogleAuthUtil.android.kt":
-        "12e9d182c7c9b6b2ae6ff57d52f9fec64dc6abdc136a29e4676bcbb211597f4f",
-    "composeApp/src/androidMain/kotlin/coredevices/coreapp/auth/OAuthProviderSignIn.android.kt":
-        "45c01a6f2ef44b65cda0e97912d04fa1b097bb153d5813a4097d04c0042ba5d5",
     "util/src/androidMain/kotlin/AppUpdate.android.kt":
         "aee44639f643a51315264b1cb1d682bbd994711f3e94f68bcda519be60b856ec",
     "util/src/androidMain/kotlin/coredevices/analytics/Analytics.android.kt":
@@ -168,6 +164,20 @@ REMOVED = [
     "pebble/src/commonMain/kotlin/coredevices/pebble/account/PermissionDecisionSync.kt",
     "pebble/src/commonTest/kotlin/coredevices/pebble/account/PermissionDecisionSyncTest.kt",
     "pebble/src/commonMain/kotlin/coredevices/pebble/services/BundledAppMigration.kt",
+    # Core's account: its user record in Firestore, what synced with it, and the sign-in
+    # providers, all switched off (see remove_core_account()).
+    "util/src/commonMain/kotlin/coredevices/firestore",
+    "util/src/commonTest/kotlin/coredevices/firestore",
+    "util/src/commonMain/kotlin/coredevices/database/UserConfigDao.kt",
+    "util/src/commonMain/kotlin/coredevices/util/auth",
+    "util/src/commonMain/kotlin/coredevices/util/FirebaseAuth.kt",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/auth",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/auth",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/auth",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreKnownWatchesDao.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreKnownWatchesSync.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/account/PermissionSettingsSync.kt",
+    "pebble/src/commonTest/kotlin/coredevices/pebble/account/PermissionSettingsSyncTest.kt",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -1275,6 +1285,116 @@ def remove_cloud_locker() -> None:
          r"\1")
 
 
+def remove_core_account() -> None:
+    """Remove Core's account: its user record, what synced with it, and the sign-in providers.
+
+    Orb switches every sign-in provider off and has no Firebase, so nobody is ever signed in: the
+    user record never loads, nothing is written to it, and the sign-in providers only ever
+    answer "no". Their code goes (REMOVED), including Orb's two stand-ins for the Google sign-in
+    files, and this unhooks it. Where the record decided something, Orb's answer is what it
+    always was: the developer connection needs its LAN setting, the developer token is the
+    Rebble one, requests that wanted a Core token go without, and Core's own store reports
+    signed out.
+    """
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module, r"^import coredevices\.(database\.UserConfigDao|firestore\.UsersDao|firestore\.UsersDaoImpl)\n",
+         "", expect=3)
+    edit(util_module, r"^    single \{ UserConfigDao \{ get\(\) \} \}\n", "")
+    edit(util_module, r"^    single<UsersDao> \{ UsersDaoImpl\(.*\) \}\n", "")
+
+    android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
+    edit(android_module,
+         r"^import coredevices\.(coreapp\.auth\.Real(Apple|Github|Google)AuthUtil"
+         r"|util\.auth\.(AppleAuthUtil|GoogleAuthUtil|GitHubAuthUtil|SilentSignIn))\n",
+         "", expect=7)
+    edit(android_module, r"^    singleOf\(::Real(Google|Apple|Github)AuthUtil\) binds? .*\n", "", expect=3)
+
+    app_delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    edit(app_delegate,
+         r"^import (coredevices\.firestore\.UsersDao|coredevices\.pebble\.account\.(FirestoreKnownWatchesSync|PermissionSettingsSync)"
+         r"|coredevices\.util\.emailOrNull|dev\.gitlive\.firebase\.(Firebase|auth\.auth))\n",
+         "", expect=6)
+    edit(app_delegate,
+         r"^    private val (usersDao: UsersDao|firestoreKnownWatchesSync: FirestoreKnownWatchesSync"
+         r"|permissionSettingsSync: PermissionSettingsSync),\n",
+         "", expect=3)
+    edit(app_delegate,
+         r"^        usersDao\.init\(\)\n"
+         r"        GlobalScope\.launch\(Dispatchers\.Default\) \{\n"
+         r"            usersDao\.initUserDevToken\(.*\)\n        \}\n"
+         r"        GlobalScope\.launch\(Dispatchers\.Default\) \{\n"
+         r"            Firebase\.auth\.currentUser\?\.emailOrNull\?\.let \{\n"
+         r"                analyticsBackend\.setUser\(email = it\)\n            \}\n        \}\n",
+         "")
+    edit(app_delegate, r"^        (firestoreKnownWatchesSync|permissionSettingsSync)\.init\(\)\n", "", expect=2)
+
+    account = "pebble/src/commonMain/kotlin/coredevices/pebble/account/PebbleAccount.kt"
+    edit(account, r"^import coredevices\.firestore\.UsersDao\n", "")
+    edit(account, r"^    private val usersDao: UsersDao,\n", "", expect=2)
+    edit(account, r"^        usersDao\.initUserDevToken\(devPortalId\)\n", "")
+    edit(account,
+         r"(    override suspend fun getDevToken\(\): String\? \{\n)"
+         r"        val userConfig = usersDao\.user\.firstOrNull\(\)\n"
+         r"        return userConfig\?\.user\?\.rebbleUserToken \?: userConfig\?\.user\?\.pebbleUserToken \?: "
+         r"(pebbleAccount\.devToken\.value)\n",
+         r"\1        return \2\n")
+
+    pebble_delegate = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleAppDelegate.kt"
+    edit(pebble_delegate, r"^import coredevices\.firestore\.UsersDao\n", "")
+    edit(pebble_delegate, r"^    private val usersDao: UsersDao,\n", "")
+    remove_kotlin_block(pebble_delegate, r"^            GlobalScope\.launch \{(?=\n                usersDao\.loginEvents\.collect \{)")
+    edit(pebble_delegate, r"^[ \t]*usersDao\.updateLastConnectedWatch\(watch\.serial\)\n", "")
+
+    watches = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchesScreen.kt"
+    edit(watches, r"^import coredevices\.firestore\.UsersDao\n", "")
+    edit(watches,
+         r"^                val usersDao: UsersDao = koinInject\(\)\n"
+         r"                val user by usersDao\.user\.collectAsState\(null\)\n", "")
+    edit(watches, r"val canUseDevConnection = user\?\.isAnonymousUser == false \|\| config\.watchConfig\.lanDevConnection",
+         "val canUseDevConnection = config.watchConfig.lanDevConnection")
+
+    preview = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt"
+    edit(preview, r"^import coredevices\.firestore\.(PebbleUser|UsersDao)\n", "", expect=2)
+    remove_kotlin_block(preview, r"^    val usersDao = object : UsersDao \{")
+    edit(preview, r"^    single \{ usersDao \} bind UsersDao::class\n", "")
+
+    watch_module = "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt"
+    edit(watch_module,
+         r"^import coredevices\.pebble\.account\.(FirestoreKnownWatchesDao|FirestoreKnownWatchesSync"
+         r"|RealFirestoreKnownWatchesSync|PermissionSettingsSync)\n",
+         "", expect=4)
+    edit(watch_module, r"^    single \{ FirestoreKnownWatchesDao \{ get\(\) \} \}\n", "")
+    edit(watch_module, r"^    singleOf\(::RealFirestoreKnownWatchesSync\) bind FirestoreKnownWatchesSync::class\n", "")
+    edit(watch_module, r"^    singleOf\(::PermissionSettingsSync\)\n", "")
+
+    web_services = "pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt"
+    edit(web_services, r"^import dev\.gitlive\.firebase\.(Firebase|auth\.auth)\n", "", expect=2)
+    edit(web_services,
+         r"HttpClientAuthType\.Core -> try \{\n"
+         r"                Firebase\.auth\.currentUser\?\.getIdToken\(false\)\n"
+         r"            \} catch \(e: Exception\) \{\n"
+         r'                logger\.e\(e\) \{ "Network error fetching Firebase token" \}\n'
+         r"                null\n            \}\n",
+         "HttpClientAuthType.Core -> null\n")
+    appstore = "pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreService.kt"
+    edit(appstore, r"^import dev\.gitlive\.firebase\.(Firebase|auth\.auth)\n", "", expect=2)
+    edit(appstore, r"(            PEBBLE_FEED_URL -> )\{\n                Firebase\.auth\.currentUser != null\n            \}\n",
+         r"\1false\n")
+
+    bug_report = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt"
+    edit(bug_report, r"^import (coredevices\.util\.emailOrNull|dev\.gitlive\.firebase\.(Firebase|auth\.FirebaseUser|auth\.auth))\n",
+         "", expect=(3, 4))
+    remove_kotlin_block(bug_report, r"^fun FirebaseUser\?\.toUserProps\(\): UserProps\? =\n    this\?\.let \{")
+    edit(bug_report,
+         r"^        val user by Firebase\.auth\.authStateChanged\.map \{\n(?:.*\n){3}"
+         r"            \.collectAsState\(Firebase\.auth\.currentUser\.toUserProps\(\)\)\n",
+         "        val user: UserProps? = null\n")
+
+    analytics = "util/src/commonMain/kotlin/coredevices/analytics/CoreAnalytics.kt"
+    edit(analytics, r"^import (coredevices\.util\.emailOrNull|dev\.gitlive\.firebase\.(Firebase|auth\.auth))\n", "", expect=3)
+    edit(analytics, r'^[ \t]*HeartbeatMetric\("core_user_id", Firebase\.auth\.currentUser\?\.emailOrNull \?: "<none>"\) \+\n', "")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1702,6 +1822,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_core_support_chat()
     remove_crashlytics()
     remove_cloud_locker()
+    remove_core_account()
 
     if extra_abis:
         edit(
