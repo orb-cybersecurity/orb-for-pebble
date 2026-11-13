@@ -59,6 +59,7 @@ REMOVED = [
     "cactus-native",
     "cactus/src/commonMain/resources/ios",
     "models",
+    "composeApp/src/androidMain/assets/models/needle-pebble-ft-cq4.zip",
     "androidApp/src/google-services-dummy.json",
     "util/src/androidMain/ic_launcher-playstore.png",
     *(f"util/src/androidMain/res/mipmap-{d}/ic_launcher_foreground.webp"
@@ -177,9 +178,13 @@ def apply(extra_abis: list[str]) -> None:
 
     for path in REMOVED:
         target = APP / path
-        if not target.exists():
+        # is_symlink covers links whose target was removed earlier in this loop.
+        if not (target.exists() or target.is_symlink()):
             raise ApplyError(f"{path}: expected to remove it, but it is not there")
-        shutil.rmtree(target) if target.is_dir() else target.unlink()
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
 
     shutil.copytree(OVERLAY, APP, dirs_exist_ok=True)
 
@@ -318,6 +323,40 @@ def apply(extra_abis: list[str]) -> None:
     android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
     edit(android_module, r"^import com\.google\.android\.play\.core\.appupdate\.AppUpdateManagerFactory\n", "")
     edit(android_module, r"^[ \t]*factory \{ AppUpdateManagerFactory\.create\(get\(\)\) \}\n", "")
+
+    # Onboarding: Orb supports watches only and has no account to sign in to. Picking the
+    # ring in Core's flow hides the only way past the sign-in page.
+    onboarding = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/OnboardingScreen.kt"
+    edit(
+        onboarding,
+        r"^([ \t]*)viewModel\.stage\.value = OnboardingStage\.DeviceSelection\n",
+        r"\1viewModel.deviceChoice.value = DeviceChoice.Watch\n"
+        r"\1viewModel.stage.value = OnboardingStage.Permissions\n",
+    )
+    edit(
+        onboarding,
+        r"viewModel\.stage\.value = OnboardingStage\.SignIn",
+        "viewModel.stage.value = OnboardingStage.Done",
+    )
+
+    # Core defaults to cloud speech recognition, which needs a Core account.
+    edit(
+        "util/src/commonMain/kotlin/coredevices/util/CoreConfig.kt",
+        r"val mode: CactusSTTMode = CactusSTTMode\.RemoteOnly,",
+        "val mode: CactusSTTMode = CactusSTTMode.PlatformOnly,",
+    )
+
+    # Core stamps the build with `git describe`, which reports a modified checkout here and
+    # goes out in the User-Agent. Use the Orb version, so servers can tell the builds apart.
+    edit(
+        "util/build.gradle.kts",
+        r"^val headSha by lazy \{\n"
+        r"[ \t]*project\.providers\.exec \{\n"
+        r'[ \t]*commandLine\("git", "describe", "--always", "--dirty"\)\n'
+        r"[ \t]*\}\.standardOutput\.asText\.get\(\)\.trim\(\)\n"
+        r"\}\n",
+        f'val headSha = "{version_name}"\n',
+    )
 
     # Core's "System" speech mode asks for this permission when selected. Android's speech
     # recognition service requires the microphone permission of its caller.
