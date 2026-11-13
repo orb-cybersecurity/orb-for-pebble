@@ -272,6 +272,30 @@ def apply(extra_abis: list[str]) -> None:
         r'\n[ \t]*<meta-data\n[ \t]*android:name="firebase_crashlytics_collection_enabled"\n[ \t]*android:value="true" />',
         "",
     )
+    # Permissions that only the Index 01 ring, Core's on-device models or nothing at all use.
+    # Each was checked against the release dex: no watch feature calls an API that needs it.
+    # WAKE_LOCK stays because WorkManager takes wake locks itself.
+    unused_permissions = (
+        "android.permission.BLUETOOTH_ADVERTISE",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "android.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE",
+        "android.permission.RUN_USER_INITIATED_JOBS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "com.android.alarm.permission.SET_ALARM",
+        "com.beeper.android.permission.READ_PERMISSION",
+        "com.beeper.android.permission.SEND_PERMISSION",
+    )
+    edit(
+        "androidApp/src/main/AndroidManifest.xml",
+        r'^    <uses-permission android:name="android\.permission\.ACCESS_NETWORK_STATE" />\n',
+        '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n'
+        + "".join(
+            f'    <uses-permission android:name="{name}" tools:node="remove" />\n'
+            for name in unused_permissions
+        ),
+    )
     edit(
         "androidApp/src/main/res/values/strings.xml",
         r'<string name="app_name">Pebble</string>',
