@@ -75,7 +75,7 @@ Core's own code compile unmodified.
 Needs JDK 17 or newer and the Android SDK.
 
 ```sh
-git clone --recurse-submodules https://codeberg.org/Gaunkle/orb-for-pebble.git
+git clone --recurse-submodules https://codeberg.org/Orb-Cybersecurity/orb-for-pebble.git
 cd orb-for-pebble
 echo "sdk.dir=/path/to/Android/Sdk" > mobileapp/local.properties
 python3 apply.py

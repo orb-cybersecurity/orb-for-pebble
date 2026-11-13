@@ -5,14 +5,14 @@ Categories:
   - Sports & Health
 License: GPL-3.0-only
 AuthorName: Gaunkle
-SourceCode: https://codeberg.org/Gaunkle/orb-for-pebble
-IssueTracker: https://codeberg.org/Gaunkle/orb-for-pebble/issues
-Changelog: https://codeberg.org/Gaunkle/orb-for-pebble/src/branch/main/fastlane/metadata/android/en-US/changelogs
+SourceCode: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble
+IssueTracker: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble/issues
+Changelog: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble/src/branch/main/fastlane/metadata/android/en-US/changelogs
 
 AutoName: Orb
 
 RepoType: git
-Repo: https://codeberg.org/Gaunkle/orb-for-pebble.git
+Repo: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble.git
 
 Builds:
   - versionName: 1.18.0.1-orb1
