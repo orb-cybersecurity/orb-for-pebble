@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: https://code.forgejo.org/actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
       - name: Apply the overlay
         run: python3 apply.py
       - name: Run Orb's unit tests
@@ -25,6 +25,8 @@ jobs:
       - name: Build the release APK
         working-directory: mobileapp
         run: ./gradlew :androidApp:assembleRelease --no-daemon --stacktrace
+      - name: Check the release dependencies
+        run: tools/check_deps.sh
       - name: Check the APK for Google and binary-only code
         run: python3 tools/check_apk.py mobileapp/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
       - name: Run F-Droid's scanner

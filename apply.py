@@ -210,6 +210,15 @@ def apply(extra_abis: list[str]) -> None:
     edit("settings.gradle.kts", r'^include\(":cactus-native"\)\n', "")
     with (APP / "settings.gradle.kts").open("a") as settings:
         settings.write('\napply(from = "orb/orb.settings.gradle.kts")\n')
+    # Nothing in the build comes from JitPack or the local Maven cache. Leaving them in would
+    # let a dependency change, or whatever is in the builder's ~/.m2, slip into the APK.
+    edit("settings.gradle.kts", r'^[ \t]*maven\b.*"https://jitpack\.io".*\n', "", expect=2)
+    edit(
+        "settings.gradle.kts",
+        r'^[ \t]*if \(properties\.getProperty\("USE_MAVEN_LOCAL"\) == "true"\) \{\n[ \t]*mavenLocal\(\)\n[ \t]*\}\n',
+        "",
+    )
+    edit("settings.gradle.kts", r"^[ \t]*mavenLocal\(\)\n", "")
     delete_lines(gradle_files(), DROPPED_ACCESSORS, at_least=10)
     edit("cactus/build.gradle.kts", r'^\s*api\(project\(":cactus-native"\)\)\n', "")
     edit(
@@ -289,7 +298,7 @@ def apply(extra_abis: list[str]) -> None:
     )
     edit(
         "androidApp/src/main/AndroidManifest.xml",
-        r'^    <uses-permission android:name="android\.permission\.ACCESS_NETWORK_STATE" />\n',
+        r'^    <!-- Mixpanel -->\n    <uses-permission android:name="android\.permission\.ACCESS_NETWORK_STATE" />\n',
         '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n'
         + "".join(
             f'    <uses-permission android:name="{name}" tools:node="remove" />\n'

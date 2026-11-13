@@ -2,3 +2,6 @@
 	path = mobileapp
 	url = https://github.com/coredevices/mobileapp.git
 	ignore = dirty
+[submodule "third_party/kotlin-speex"]
+	path = third_party/kotlin-speex
+	url = https://github.com/coredevices/kotlin-speex.git
