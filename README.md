@@ -23,7 +23,7 @@ comes first when the two pull in different directions.
 
 Orb is early in development and currently based on Core's 1.18.0.1 release.
 It has been tested on GrapheneOS with a real watch. The first release will be
-published on Codeberg as a signed APK, installed and updated with Obtainium.
+published on GitHub as a signed APK, installed and updated with Obtainium.
 
 Dictation does not work yet. Orb hands it to the phone's speech recognition
 service, and no free recognizer currently transcribes the watch's audio:
@@ -101,11 +101,11 @@ Play.
 1. Install Obtainium from its
    [releases page](https://github.com/ImranR98/Obtainium/releases) or from F-Droid.
 2. In Obtainium, tap **Add App** and enter
-   `https://codeberg.org/Orb-Cybersecurity/orb-for-pebble`.
+   `https://github.com/orb-cybersecurity/orb-for-pebble`.
 3. Tap **Add**, then **Install**. Android asks once to allow Obtainium to install
    apps.
 
-Obtainium checks Codeberg for new releases and offers each update. Every release
+Obtainium checks GitHub for new releases and offers each update. Every release
 is a single APK signed with Orb's release key, and Android refuses an update signed
 with any other key, so a replaced download can't overwrite the installed app. Each
 release lists the signing certificate's SHA-256 fingerprint, so you can check the
@@ -113,7 +113,7 @@ first install against it (for example with
 [AppVerifier](https://github.com/soupslurpr/AppVerifier)).
 
 You can also download the APK from
-[Codeberg Releases](https://codeberg.org/Orb-Cybersecurity/orb-for-pebble/releases)
+[GitHub Releases](https://github.com/orb-cybersecurity/orb-for-pebble/releases)
 and install it by hand. Nothing will then tell you about updates. Until the first
 release is published, build from source (see below).
 
@@ -128,7 +128,7 @@ the same PebbleKit providers, so Android cannot install them alongside Orb.
 Requires JDK 17 or newer and the Android SDK.
 
 ```sh
-git clone --recurse-submodules https://codeberg.org/Orb-Cybersecurity/orb-for-pebble.git
+git clone --recurse-submodules https://github.com/orb-cybersecurity/orb-for-pebble.git
 cd orb-for-pebble
 echo "sdk.dir=/path/to/Android/Sdk" > mobileapp/local.properties
 python3 apply.py
@@ -151,7 +151,7 @@ allowing Core's code to compile unmodified. This approach comes from
 ## Contributing
 
 Report issues and submit pull requests on
-[Codeberg](https://codeberg.org/Orb-Cybersecurity/orb-for-pebble).
+[GitHub](https://github.com/orb-cybersecurity/orb-for-pebble).
 
 ## License and trademarks
 

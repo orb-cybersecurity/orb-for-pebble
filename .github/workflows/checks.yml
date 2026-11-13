@@ -1,4 +1,4 @@
-# Light checks that fit Codeberg's hosted runners.
+# Light checks that fit GitHub's hosted runners.
 name: checks
 
 on:
@@ -8,29 +8,36 @@ on:
     - cron: "23 7 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   overlay:
     # The overlay must still match the upstream files it was written against.
-    if: forgejo.event_name != 'schedule'
-    runs-on: codeberg-tiny
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
     steps:
-      - uses: https://code.forgejo.org/actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
+          persist-credentials: false
       - run: python3 apply.py --check
 
   upstream:
     # Open an issue when Core tags a release newer than the pinned one.
-    if: forgejo.event_name == 'schedule' || forgejo.event_name == 'workflow_dispatch'
-    runs-on: codeberg-tiny
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
     steps:
-      - uses: https://code.forgejo.org/actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Compare with Core's tags
         env:
-          TOKEN: ${{ forgejo.token }}
-          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set +e
           message=$(python3 tools/upstream.py status)
@@ -40,11 +47,8 @@ jobs:
           [ "$code" -eq 0 ] && exit 0
           [ "$code" -ne 3 ] && exit "$code"
           title="Update to Core $(echo "$message" | sed -n 's/^Core has released \([^;]*\);.*/\1/p')"
-          open=$(curl -fsS -H "Authorization: token $TOKEN" "$API/issues?state=open&type=issues&limit=50" \
+          open=$(gh issue list --state open --limit 100 --json title \
             | python3 -c 'import json,sys; t=sys.argv[1]; print(any(i["title"]==t for i in json.load(sys.stdin)))' "$title")
           [ "$open" = True ] && exit 0
-          body="$message Run \`python3 tools/upstream.py bump <tag>\` to start."
-          python3 -c 'import json,sys; print(json.dumps({"title": sys.argv[1], "body": sys.argv[2]}))' "$title" "$body" \
-            | curl -fsS -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
-                --data @- "$API/issues" > /dev/null
+          gh issue create --title "$title" --body "$message Run \`python3 tools/upstream.py bump <tag>\` to start."
           echo "Opened issue: $title"

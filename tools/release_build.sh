@@ -3,7 +3,7 @@
 #
 # Builds the release app bundle and has bundletool turn it into one installable APK for both
 # ARM ABIs, signed with the release key (APK signature v2/v3). That APK is what goes on the
-# Codeberg release, where Obtainium picks it up. The script then checks it.
+# GitHub release, where Obtainium picks it up. The script then checks it.
 #
 # Usage: tools/release_build.sh [KEYSTORE] [ALIAS]
 #   KEYSTORE  default ~/.local/share/orb-release/orb-release.p12 (PKCS12, mode 600)

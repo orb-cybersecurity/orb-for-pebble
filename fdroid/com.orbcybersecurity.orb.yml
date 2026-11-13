@@ -5,14 +5,14 @@ Categories:
   - Sports & Health
 License: GPL-3.0-only
 AuthorName: Orb Cybersecurity
-SourceCode: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble
-IssueTracker: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble/issues
-Changelog: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble/src/branch/main/fastlane/metadata/android/en-US/changelogs
+SourceCode: https://github.com/orb-cybersecurity/orb-for-pebble
+IssueTracker: https://github.com/orb-cybersecurity/orb-for-pebble/issues
+Changelog: https://github.com/orb-cybersecurity/orb-for-pebble/tree/main/fastlane/metadata/android/en-US/changelogs
 
 AutoName: Orb
 
 RepoType: git
-Repo: https://codeberg.org/Orb-Cybersecurity/orb-for-pebble.git
+Repo: https://github.com/orb-cybersecurity/orb-for-pebble.git
 
 Builds:
   - versionName: 1.18.0.1-orb1

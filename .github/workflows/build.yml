@@ -1,6 +1,7 @@
-# Full build. Too large for Codeberg's hosted runners, so it runs on the maintainer's own
-# runner (label orb-android; see "CI" in the README). Only pushes to this repository trigger
-# it, never pull requests, so code from forks does not run on that machine.
+# Full build. It needs the Android SDK, the NDK and a large Gradle cache, so it runs on the
+# maintainer's own runner (labels self-hosted, orb-android). Only pushes
+# to this repository trigger it, never pull requests, so code from forks does not run on that
+# machine.
 name: build
 
 on:
@@ -9,14 +10,22 @@ on:
     tags: ["*-orb*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   apk:
-    runs-on: orb-android
+    runs-on: [self-hosted, orb-android]
     timeout-minutes: 120
     steps:
-      - uses: https://code.forgejo.org/actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
       - name: Apply the overlay
         run: python3 apply.py
       - name: Run Orb's unit tests
@@ -30,8 +39,8 @@ jobs:
       - name: Check the APK for Google and binary-only code
         run: python3 tools/check_apk.py mobileapp/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
       - name: Run F-Droid's scanner
-        run: tools/fdroid_scan.sh "${{ forgejo.sha }}"
-      - uses: https://code.forgejo.org/actions/upload-artifact@v3
+        run: tools/fdroid_scan.sh "${{ github.sha }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: orb-unsigned-apk
           path: mobileapp/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
