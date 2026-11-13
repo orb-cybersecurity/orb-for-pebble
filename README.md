@@ -80,21 +80,30 @@ checks, it tries the next older eligible release.
 
 ## Network and privacy
 
-Services Orb is known to contact include:
+Orb itself contacts only these services:
 
-- Pebble app store: `appstore-api.repebble.com`.
-- Rebble app store: `appstore-api.rebble.io`.
-- Algolia, a third-party search service, using the stores' public search-only keys.
-- Core's weather and notification-icon services on `repebble.com`.
-- Rebble's boot, binaries and firmware cohorts services.
-- GitHub, for Core watch firmware releases.
+- **Rebble:** sign-in configuration (`boot.rebble.io`), the Rebble app store
+  (`appstore-api.rebble.io`), app downloads and images (`binaries.rebble.io`,
+  `assets2.rebble.io`), firmware for older Pebble watches (`cohorts.rebble.io`),
+  and Rebble dictation if you choose it.
+- **Core's Pebble app store** (`appstore-api.repebble.com`), its published watch
+  language packs (`translate.repebble.com`) and timeline icons
+  (`developer.repebble.com`).
+- **Algolia**, a third-party search service, when you search an app store. It uses
+  the stores' public search-only keys.
+- **Core's weather service** (`weather-api.repebble.com`) while weather is on, which
+  it is by default. It receives the coordinates of each weather location. Watch apps
+  that ask OpenWeatherMap's or Yahoo's old weather APIs are answered from the same
+  service, with the coordinates they ask about.
+- **GitHub**, for firmware releases for Core watches.
 
-Links also open Core's documentation pages. A full audit of every host the app can
-reach is in progress; this list will be completed as part of it.
+"Getting Started & Troubleshooting" and app store pages open in your browser.
+Watch apps you install run their own JavaScript on the phone and can contact their
+own servers, as on every Pebble app.
 
-Orb sends no telemetry. Mixpanel analytics is removed, and so is the code for
-Core's own telemetry: the watch analytics heartbeat and Memfault diagnostics
-uploads. Data the watch offers for them is dropped on the phone.
+Orb sends no telemetry and has no analytics. Mixpanel, Firebase, Crashlytics,
+Core's analytics and Core's watch analytics and Memfault diagnostics uploads are
+all removed. Data the watch offers for them is dropped on the phone.
 
 ## Installing
 

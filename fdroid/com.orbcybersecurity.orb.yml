@@ -28,12 +28,29 @@ Builds:
       - third_party/kotlin-speex/library/test-data
     ndk: r28b
 
+  - versionName: 1.18.0.1-orb2
+    versionCode: 118000012
+    commit: 1.18.0.1-orb2
+    subdir: mobileapp/androidApp
+    submodules: true
+    gradle:
+      - yes
+    prebuild: python3 ../../apply.py
+    scandelete:
+      - third_party/kotlin-speex/library/build.gradle.kts
+      - third_party/kotlin-speex/library/test-data
+    ndk: r28b
+
 MaintainerNotes: |-
   The repository holds no copy of Core's source. mobileapp/ is Core's repository as a
   submodule, pinned to a release tag, and apply.py turns it into Orb: it copies overlay/ over
   the checkout and makes a list of small edits, each asserting how often it matched, and checks
   every upstream file it replaces against a recorded hash. A Core change that needs a human
   look therefore fails the build instead of slipping through.
+
+  Orb removes the code that needs Google services or a Core account rather than stubbing it, so
+  no Firebase, Google or analytics library is in the build (tools/check_deps.sh checks the release
+  dependencies).
 
   Speex, which decodes dictation audio from the watch, is built from source
   (third_party/kotlin-speex, the commit Core published) with NDK r28b, in place of Core's

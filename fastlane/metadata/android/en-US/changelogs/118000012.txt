@@ -1,0 +1,5 @@
+- Signed in to Rebble, Orb now brings in your Rebble locker. The list of your store apps is kept on the phone, and a sync never removes an installed app.
+- Removed features that needed a Core account: battery history, messaging developers, the bug-report list and support chat, and the sign-in dialog.
+- Removed Firebase, Crashlytics, push messaging and Core's analytics completely.
+- The getting-started guide opens in your browser.
+- The release no longer ships a development preview tool.
