@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.russhwolf.settings.Settings
 import coredevices.pebble.firmware.GitHubFirmwareApi.Companion.PINNED_FIRMWARE_KEY
 import coredevices.pebble.firmware.ReleaseVersion
+import io.rebble.libpebblecommon.connection.LibPebble
 import org.koin.compose.koinInject
 
 /** Orb: a debug setting to pin the PebbleOS release offered to Core's watches. */
@@ -35,6 +36,7 @@ private const val PINNED_FIRMWARE_TITLE = "PebbleOS version for Core watches"
 @Composable
 private fun PinnedFirmwareItem() {
     val settings: Settings = koinInject()
+    val libPebble: LibPebble = koinInject()
     var pinned by remember { mutableStateOf(settings.getStringOrNull(PINNED_FIRMWARE_KEY).orEmpty()) }
     var editing by remember { mutableStateOf(false) }
     ListItem(
@@ -76,6 +78,8 @@ private fun PinnedFirmwareItem() {
                         else settings.putString(PINNED_FIRMWARE_KEY, text)
                         pinned = text
                         editing = false
+                        // Replace any offer made under the previous setting right away.
+                        libPebble.checkForFirmwareUpdates(force = true)
                     },
                 ) { Text("Save") }
             },

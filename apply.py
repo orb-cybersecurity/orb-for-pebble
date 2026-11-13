@@ -479,6 +479,36 @@ def apply(extra_abis: list[str]) -> None:
     edit(util_module, r"single \{ EngDashOtaApiImpl\(\) \} bind EngDashOtaApi::class",
          "single { GitHubFirmwareApi(get(), get()) } bind EngDashOtaApi::class")
     edit(settings_screen, r"^(\s*)\) \+ watchPrefs\n", r"\1) + watchPrefs + orbPinnedFirmwareSetting()\n")
+    # GitHubFirmwareApi puts the SHA-256 it verified in the URL fragment. Check the download that
+    # gets installed against it, so only the bytes Orb checked can reach the watch.
+    downloader = "libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/web/FirmwareDownloader.kt"
+    edit(downloader, r"^import kotlinx\.io\.files\.SystemFileSystem\n",
+         "import kotlinx.io.buffered\n"
+         "import kotlinx.io.files.SystemFileSystem\n"
+         "import kotlinx.io.readByteArray\n"
+         "import okio.ByteString.Companion.toByteString\n")
+    edit(downloader, r"httpClient\.get\(url\)", 'httpClient.get(url.substringBefore("#orb-sha256="))')
+    edit(
+        downloader,
+        r'^([ \t]*)logger\.v \{ "Downloaded firmware to \$path" \}\n',
+        r'\1val orbSha256 = url.substringAfter("#orb-sha256=", "").substringBefore("&")' "\n"
+        r"\1if (orbSha256.isNotEmpty()) {" "\n"
+        r"\1    val actual = SystemFileSystem.source(path).buffered().use { it.readByteArray() }.toByteString().sha256().hex()" "\n"
+        r"\1    if (actual != orbSha256) {" "\n"
+        r'\1        logger.w { "Downloaded firmware is not the bundle Orb verified; discarding it" }' "\n"
+        r"\1        SystemFileSystem.delete(path)" "\n"
+        r"\1        return@withTimeoutOr null" "\n"
+        r"\1    }" "\n"
+        r"\1}" "\n"
+        r'\1logger.v { "Downloaded firmware to $path" }' "\n",
+    )
+    # A pinned version is the user's explicit choice, possibly a downgrade: offer it, never
+    # install it unattended.
+    edit(
+        "pebble/src/commonMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateUiTracker.kt",
+        r"^([ \t]*)update\.installsDirectly &&\n",
+        r"\1update.installsDirectly &&" "\n" r'\1!update.url.contains("&orb-pinned") &&' "\n",
+    )
 
     # Battery history is a page on Core's server for signed-in accounts.
     edit(

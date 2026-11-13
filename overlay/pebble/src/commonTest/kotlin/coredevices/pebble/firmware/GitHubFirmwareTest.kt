@@ -100,7 +100,10 @@ class GitHubFirmwareTest {
         )
         val result = server.api().getLatestFirmware("serial", BOARD, "v4.44.0")
         assertEquals("v4.45.0", result?.version)
-        assertEquals(bundleUrl("v4.45.0"), result?.artifacts?.single()?.url)
+        assertEquals(
+            bundleUrl("v4.45.0") + "#orb-sha256=" + sha256(good).toHexString(),
+            result?.artifacts?.single()?.url,
+        )
     }
 
     @Test
@@ -130,7 +133,9 @@ class GitHubFirmwareTest {
         val older = pbz("v4.44.4")
         val server = FakeGitHub(release("v4.46.0", bundle = newest) to newest, release("v4.44.4", bundle = older) to older)
         val settings = MapSettings(GitHubFirmwareApi.PINNED_FIRMWARE_KEY to "4.44.4")
-        assertEquals("v4.44.4", server.api(settings).getLatestFirmware("serial", BOARD, "v4.46.0")?.version)
+        val offer = server.api(settings).getLatestFirmware("serial", BOARD, "v4.46.0")
+        assertEquals("v4.44.4", offer?.version)
+        assertTrue(offer!!.artifacts.single().url.endsWith("&orb-pinned"))
         assertNull(server.api(settings).getLatestFirmware("serial", BOARD, "v4.44.4"))
     }
 
@@ -143,21 +148,100 @@ class GitHubFirmwareTest {
         val missing = MapSettings(GitHubFirmwareApi.PINNED_FIRMWARE_KEY to "v9.9.9")
         assertFailsWith<IllegalStateException> { server.api(missing).getLatestFirmware("serial", BOARD, "v4.46.0") }
     }
+
+    @Test
+    fun aFailedDownloadFailsTheCheckInsteadOfFallingBack() = runTest {
+        val newest = pbz("v4.46.0")
+        val older = pbz("v4.45.0")
+        val server = FakeGitHub(release("v4.46.0", bundle = newest) to newest, release("v4.45.0", bundle = older) to older)
+        server.failingDownloads += bundleUrl("v4.46.0")
+        val api = server.api()
+        assertFailsWith<IllegalStateException> { api.getLatestFirmware("serial", BOARD, "v4.44.0") }
+        // Not remembered: once the download works, the newest release is offered.
+        server.failingDownloads.clear()
+        assertEquals("v4.46.0", api.getLatestFirmware("serial", BOARD, "v4.44.0")?.version)
+    }
+
+    @Test
+    fun verdictsFollowThePublishedDigestNotTheUrl() = runTest {
+        val broken = pbz("v4.40.0")
+        val server = FakeGitHub(release("v4.46.0", bundle = broken) to broken)
+        val api = server.api()
+        assertNull(api.getLatestFirmware("serial", BOARD, "v4.44.0"))
+        // Core re-uploads a fixed bundle under the same name and URL.
+        val fixed = pbz("v4.46.0")
+        server.replace(release("v4.46.0", bundle = fixed) to fixed)
+        assertEquals("v4.46.0", api.getLatestFirmware("serial", BOARD, "v4.44.0")?.version)
+    }
+
+    @Test
+    fun anUnchangedReleaseListIsNotDownloadedAgain() = runTest {
+        val good = pbz("v4.46.0")
+        val server = FakeGitHub(release("v4.46.0", bundle = good) to good)
+        val api = server.api()
+        api.getLatestFirmware("serial", BOARD, "v4.44.0")
+        api.getLatestFirmware("serial", BOARD, "v4.44.0")
+        assertEquals(1, server.releaseListBodies)
+        assertEquals(1, server.notModified)
+    }
+
+    @Test
+    fun aWatchOnAFourPartBuildGetsNewerReleases() {
+        val releases = listOf(release("v4.46.0"), release("v4.9.142.12"))
+        assertEquals(listOf("v4.46.0"), firmwareCandidates(releases, BOARD, running = "v4.9.142.12").map { it.tag })
+        assertEquals(emptyList(), firmwareCandidates(listOf(release("v4.9.0")), BOARD, running = "v4.9.142.12"))
+    }
+
+    @Test
+    fun pinnedOffersAreMarkedAndOthersAreNot() {
+        val asset = release("v4.46.0").assets.single()
+        assertTrue(withVerifiedDigest(asset, pinned = true).endsWith("&orb-pinned"))
+        assertTrue(withVerifiedDigest(asset, pinned = false).endsWith(asset.digest!!.removePrefix("sha256:")))
+    }
 }
 
 private class FakeGitHub(vararg releases: Pair<GitHubRelease, ByteArray>) {
-    private val releaseList = releases.map { it.first }
-    private val bundles = releases.associate { (release, bytes) -> release.assets.single().url to bytes }
+    private var releaseList = releases.map { it.first }
+    private var bundles = releases.associate { (release, bytes) -> release.assets.single().url to bytes }
+    private var etag = 1
+    val failingDownloads = mutableSetOf<String>()
     var bundleDownloads = 0
+    var releaseListBodies = 0
+    var notModified = 0
+
+    fun replace(vararg releases: Pair<GitHubRelease, ByteArray>) {
+        releaseList = releases.map { it.first }
+        bundles = releases.associate { (release, bytes) -> release.assets.single().url to bytes }
+        etag++
+    }
 
     fun api(settings: MapSettings = MapSettings()) = GitHubFirmwareApi(
         HttpClient(MockEngine { request ->
             val url = request.url.toString()
+            val json = headersOf(HttpHeaders.ContentType, "application/json")
             when {
-                url.startsWith("https://api.github.com/repos/coredevices/PebbleOS/releases") -> respond(
-                    Json.encodeToString(releaseList),
-                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
-                )
+                url.startsWith("$RELEASES/tags/") -> {
+                    val tag = url.removePrefix("$RELEASES/tags/")
+                    releaseList.firstOrNull { it.tagName == tag }
+                        ?.let { respond(Json.encodeToString(it), headers = json) }
+                        ?: respondError(HttpStatusCode.NotFound)
+                }
+                url.startsWith(RELEASES) -> {
+                    if (request.headers[HttpHeaders.IfNoneMatch] == "\"$etag\"") {
+                        notModified++
+                        respond("", HttpStatusCode.NotModified)
+                    } else {
+                        releaseListBodies++
+                        respond(
+                            Json.encodeToString(releaseList),
+                            headers = headersOf(
+                                HttpHeaders.ContentType to listOf("application/json"),
+                                HttpHeaders.ETag to listOf("\"$etag\""),
+                            ),
+                        )
+                    }
+                }
+                url in failingDownloads -> respondError(HttpStatusCode.ServiceUnavailable)
                 url in bundles -> {
                     bundleDownloads++
                     respond(bundles.getValue(url))
@@ -170,6 +254,8 @@ private class FakeGitHub(vararg releases: Pair<GitHubRelease, ByteArray>) {
         settings,
     )
 }
+
+private const val RELEASES = "https://api.github.com/repos/coredevices/PebbleOS/releases"
 
 private fun bundleUrl(tag: String, board: String = BOARD) =
     "https://github.com/coredevices/PebbleOS/releases/download/$tag/${bundleName(board, tag)}"
