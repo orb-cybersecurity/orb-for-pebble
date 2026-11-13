@@ -46,6 +46,8 @@ REPLACED = {
         "f4a6756127386188a4db9ff9a4d3d679db0c8c1dcee9edef988eea6149f1ce7f",
     "util/src/androidMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.android.kt":
         "4b95f649c8dd2a5e2e3c6e3a19f9c05836d64315d0a75f8aa096201ff5819d36",
+    "util/src/commonMain/kotlin/theme/Theme.kt":
+        "76f3cfc7ce8722c581eec20a7638b03a92bc666481a41c052c337b5ffe668ceb",
     "pebble/src/commonMain/kotlin/coredevices/pebble/services/Memfault.kt":
         "9dda6ccec279bb6501975833de97476fadbdd6f41d0ba93623fafe1ed6ff136b",
     "util/src/androidMain/res/mipmap-anydpi-v26/ic_launcher.xml":

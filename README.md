@@ -1,6 +1,6 @@
 # Orb for Pebble
 
-An Android companion app for Pebble watches, based on [Core Devices' app](https://github.com/coredevices/mobileapp), for phones without Google Play services.
+A Pebble companion app built for [GrapheneOS](https://grapheneos.org), based on [Core Devices' app](https://github.com/coredevices/mobileapp).
 
 Not affiliated with or endorsed by Core Devices or GrapheneOS.
 
@@ -12,15 +12,24 @@ depends on these, Orb uses what GrapheneOS provides natively or a free and
 open-source alternative. Where no free replacement exists yet, Orb leaves the
 feature out. Otherwise, it stays as close to Core's app as possible.
 
-GrapheneOS is the primary target. Orb should also work on other Android phones
-without Google Play services.
+Orb is developed for GrapheneOS, and GrapheneOS is the platform it is tested and
+supported on. Its design choices follow from that: it uses GrapheneOS's own
+components where they exist, respects its permission toggles and scopes, and
+takes its look from GrapheneOS's apps. Orb will likely run on other Android
+phones without Google Play services, but those are not tested, and GrapheneOS
+comes first when the two pull in different directions.
 
 ## Status
 
 Orb is early in development and currently based on Core's 1.18.0.1 release.
-Debug and release builds start on an Android 16 emulator without Google services.
-It has not been tested with a real watch. Dictation through the system speech
-recognizer is also untested. No release has been published yet.
+It has been tested on GrapheneOS with a real watch, and the first release is being
+prepared for Accrescent.
+
+Dictation does not work yet. Orb hands it to the phone's speech recognition
+service, and no free recognizer currently transcribes the watch's audio:
+GrapheneOS's own speech services do not offer speech-to-text yet, and Transcribro
+records the phone's microphone instead of the audio Orb passes to it. Orb will use
+whichever of these gains support first.
 
 The watchface and app store works without an account: browsing the Pebble and
 Rebble stores, searching, and installing to the watch all work. Without an
