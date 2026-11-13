@@ -52,6 +52,9 @@ This repository does not contain Core's source. It pins it, and holds the change
 | `apply.py` | Applies the overlay and a list of small edits to a pristine checkout |
 | `version.properties` | The Orb version built from the pinned tag |
 | `tools/check_apk.py` | Fails if a built APK contains, or refers to, code Orb must not ship |
+| `tools/fdroid_scan.sh` | Runs F-Droid's source scanner on a commit, as F-Droid's build server would |
+| `tools/upstream.py` | Checks for and moves to new Core releases |
+| `fdroid/` | Draft F-Droid build recipe |
 
 `apply.py` checks every edit matched and every replaced file is the upstream version it was
 written for, so a Core change that needs a human look stops the build instead of slipping
@@ -79,11 +82,32 @@ python3 ../tools/check_apk.py androidApp/build/outputs/apk/release/androidApp-re
 
 ## Moving to a new Core release
 
-1. Point the submodule at the new tag: `git -C mobileapp fetch --tags && git -C mobileapp checkout <tag>`.
-2. Set `versionName` and `versionCode` in `version.properties`.
-3. Run `python3 apply.py --reset`, build, and run `tools/check_apk.py`.
+`python3 tools/upstream.py status` compares the pinned tag with Core's newest one. A daily CI
+job runs it and opens an issue when Core tags a release.
+
+1. `python3 tools/upstream.py bump <tag>` pins the tag, sets `version.properties` to
+   `<tag>-orb1`, and lists the replaced files Core changed, with the command to see each diff.
+2. Port those changes into the overlay copies and update their hashes in `apply.py`.
+3. Run `python3 apply.py --reset`, build, run `tools/check_apk.py` and `tools/fdroid_scan.sh`,
+   and test on a phone before tagging `<tag>-orb1`.
 
 If `apply.py` or the build fails, the message names what changed upstream.
+
+## CI
+
+`.forgejo/workflows/checks.yml` runs on Codeberg's hosted runners: `apply.py --check` on every
+push and pull request, and the daily release check.
+
+`.forgejo/workflows/build.yml` builds the APK, runs `tools/check_apk.py` and F-Droid's scanner,
+and keeps the APK as an artifact. The build is too large for Codeberg's hosted runners, so it
+needs a [Forgejo runner](https://forgejo.org/docs/latest/admin/actions/runner-installation/)
+registered to this repository with the label `orb-android`. It runs on pushes to `main` and on
+`*-orb*` tags only, never on pull requests. Give the runner its own unprivileged user account,
+because workflow steps run with that user's access, and give that user:
+
+- JDK 17 or newer (`JAVA_HOME`), the Android SDK (`ANDROID_HOME`), Python 3 and git;
+- fdroidserver (`pip install fdroidserver`) on `PATH`;
+- about 20 GB of disk for Gradle's caches.
 
 ## License
 

@@ -1,0 +1,32 @@
+# Full build. Too large for Codeberg's hosted runners, so it runs on the maintainer's own
+# runner (label orb-android; see "CI" in the README). Only pushes to this repository trigger
+# it, never pull requests, so code from forks does not run on that machine.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["*-orb*"]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: orb-android
+    timeout-minutes: 120
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          submodules: true
+      - name: Apply the overlay
+        run: python3 apply.py
+      - name: Build the release APK
+        working-directory: mobileapp
+        run: ./gradlew :androidApp:assembleRelease --no-daemon --stacktrace
+      - name: Check the APK for Google and binary-only code
+        run: python3 tools/check_apk.py mobileapp/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
+      - name: Run F-Droid's scanner
+        run: tools/fdroid_scan.sh "${{ forgejo.sha }}"
+      - uses: https://code.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: orb-unsigned-apk
+          path: mobileapp/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk

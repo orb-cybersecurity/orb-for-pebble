@@ -1,0 +1,50 @@
+# Light checks that fit Codeberg's hosted runners.
+name: checks
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  overlay:
+    # The overlay must still match the upstream files it was written against.
+    if: forgejo.event_name != 'schedule'
+    runs-on: codeberg-tiny
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          submodules: true
+      - run: python3 apply.py --check
+
+  upstream:
+    # Open an issue when Core tags a release newer than the pinned one.
+    if: forgejo.event_name == 'schedule' || forgejo.event_name == 'workflow_dispatch'
+    runs-on: codeberg-tiny
+    permissions:
+      issues: write
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+      - name: Compare with Core's tags
+        env:
+          TOKEN: ${{ forgejo.token }}
+          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+        run: |
+          set +e
+          message=$(python3 tools/upstream.py status)
+          code=$?
+          set -e
+          echo "$message"
+          [ "$code" -eq 0 ] && exit 0
+          [ "$code" -ne 3 ] && exit "$code"
+          title="Update to Core $(echo "$message" | sed -n 's/^Core has released \([^;]*\);.*/\1/p')"
+          open=$(curl -fsS -H "Authorization: token $TOKEN" "$API/issues?state=open&type=issues&limit=50" \
+            | python3 -c 'import json,sys; t=sys.argv[1]; print(any(i["title"]==t for i in json.load(sys.stdin)))' "$title")
+          [ "$open" = True ] && exit 0
+          body="$message Run \`python3 tools/upstream.py bump <tag>\` to start."
+          python3 -c 'import json,sys; print(json.dumps({"title": sys.argv[1], "body": sys.argv[2]}))' "$title" "$body" \
+            | curl -fsS -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
+                --data @- "$API/issues" > /dev/null
+          echo "Opened issue: $title"
