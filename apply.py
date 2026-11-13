@@ -133,6 +133,18 @@ REMOVED = [
     "pebble/src/commonMain/kotlin/coredevices/pebble/ui/ModelManagementScreen.kt",
     "pebble/src/commonMain/composeResources/drawable/wispr_flow_logo_black.png",
     "pebble/src/commonMain/composeResources/drawable/wispr_flow_logo_white.png",
+    # Screens and dialogs that need a Core account, and Core's web pages about its own app
+    # (see remove_core_account_screens()).
+    "pebble/src/commonMain/kotlin/coredevices/pebble/ui/BatterySettingsScreen.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/ui/ContactDeveloperScreen.kt",
+    "pebble/src/commonMain/kotlin/coredevices/pebble/services/ContactDeveloperApi.kt",
+    "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportsListScreen.kt",
+    "util/src/commonMain/kotlin/coredevices/ui/SignInButton.kt",
+    "util/src/androidMain/kotlin/coredevices/ui/SignInButton.android.kt",
+    "util/src/iosMain/kotlin/coredevices/ui/SignInButton.ios.kt",
+    "util/src/commonMain/kotlin/AppUpdateTracker.kt",
+    # Stand-ins for Core's noise-suppression library that nothing depends on.
+    "krisp-stubs",
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -1010,6 +1022,117 @@ def remove_core_speech(settings_screen: str) -> None:
     remove_kotlin_block(settings_screen, r"^[ \t]*extraSupportingContent = \{(?=\n[ \t]*modelDownloadState\.takeIf)")
 
 
+def remove_core_account_screens(settings_screen: str) -> None:
+    """Remove screens and dialogs that only work with a Core account, and Core's web pages
+    about its own app.
+
+    - Battery history is a page on Core's server for signed-in accounts. Its entry points were
+      already gone (apply() and WatchesScreen.kt); the screen and its route go too.
+    - Contact Developer sends messages through Core's app store with a Core sign-in token.
+    - The list of submitted bug reports is fetched from Core's support backend for the signed-in
+      account. Sharing logs as a file stays.
+    - The sign-in dialog offers only Google, Apple and GitHub sign-in to Core's account, all of
+      which Orb switches off, so it only ever said that sign-in is disabled.
+    - "What's new" opened Core's changelogs for its own app and for PebbleOS, hosted on Notion.
+      The badge that pointed at them goes too. The alpha testers' guide had no entry point.
+    - The settings screen kept the state of the removed telemetry toggles.
+
+    Core's release builds and Orb's are both QA builds (util/build.gradle.kts defaults QA to
+    true), so the routes inside `if (CommonBuildKonfig.QA)` were reachable.
+    """
+    # Battery.
+    routes = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/PebbleRoutes.kt"
+    edit(routes, r"^    @Serializable\n    data object BatterySettingsRoute : NavBarRoute\n\n", "")
+    remove_kotlin_block(routes,
+                        r"^    composableWithAnimations<PebbleNavBarRoutes\.BatterySettingsRoute>\(viewModel\) \{")
+
+    # Contact Developer.
+    edit(routes,
+         r"^\n    @Serializable\n    data class ContactDeveloperRoute\(\n"
+         r"        val appId: String,\n        val appTitle: String,\n    \) : CoreRoute\n", "")
+    remove_kotlin_block(routes, r"^    composable<PebbleRoutes\.ContactDeveloperRoute> \{")
+    watch_module = "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt"
+    edit(watch_module, r"^import coredevices\.pebble\.services\.ContactDeveloperApi\n", "")
+    edit(watch_module, r"^[ \t]*singleOf\(::ContactDeveloperApi\)\n", "")
+    locker_app = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerAppScreen.kt"
+    edit(locker_app, r"^[ \t]*val contactStoreId = entry\.storeId\n", "")
+    edit(locker_app,
+         r"^( *)\} else if \(\n *commonAppStore\?\.contactable == true &&\n(?:.*\n)*?"
+         r" *PebbleRoutes\.ContactDeveloperRoute\(\n(?:.*\n)*?\1\}\n",
+         r"\1}\n")
+
+    # Core's web pages and the bug-report list.
+    nav_host = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt"
+    gone_routes = ("AlphaTestInstructionsRoute", "ViewMyBugReportsRoute", "RoadmapChangelogRoute",
+                   "PebbleOsChangelogRoute")
+    for route in gone_routes:
+        remove_kotlin_block(nav_host, rf"^[ \t]*composable<CommonRoutes\.{route}> \{{")
+    edit(nav_host, r"^import coredevices\.coreapp\.ui\.screens\.BugReportsListScreen\n", "")
+    edit("util/src/commonMain/kotlin/CommonRoutes.kt",
+         rf"^    @Serializable\n    data object (?:{'|'.join(gone_routes)}) : CoreRoute\n\n",
+         "", expect=len(gone_routes))
+    for title in ("What’s new in the app", "Show badge when app was updated", "What’s new in PebbleOS"):
+        remove_setting(settings_screen, title)
+    edit(settings_screen,
+         r"^    val appUpdateTracker: AppUpdateTracker = koinInject\(\)\n"
+         r"    val appWasUpdated by appUpdateTracker\.appWasUpdated\.collectAsState\(\)\n"
+         r"    val appUpdated = if \(appWasUpdated && coreConfig\.showAppUpdatedBadge\) 1 else 0\n"
+         r"    return permissionBadgeCount \+ updatesAvailable \+ appUpdated\n",
+         "    return permissionBadgeCount + updatesAvailable\n")
+    edit(settings_screen,
+         r"^    val appUpdateTracker: AppUpdateTracker = koinInject\(\)\n"
+         r"    val showChangelogBadge = remember \{ appUpdateTracker\.appWasUpdated\.value \}\n", "")
+    edit(settings_screen, r"^import AppUpdateTracker\n", "")
+    for module, line in (
+        ("composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt",
+         r"^[ \t]*singleOf\(::AppUpdateTracker\)\n"),
+        ("pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt",
+         r"^[ \t]*single \{ AppUpdateTracker\(get\(\), get\(\)\) \}\n"),
+    ):
+        edit(module, line, "")
+        edit(module, r"^import AppUpdateTracker\n", "")
+
+    # The sign-in dialog. Choosing Rebble's speech service without a subscription still says so.
+    edit(settings_screen, r"^[ \t]*var showSignInDialog by remember \{ mutableStateOf\(false\) \}\n", "")
+    remove_kotlin_block(settings_screen, r"^[ \t]*if \(showSignInDialog\) \{")
+    edit(settings_screen,
+         r'^([ \t]*snackbarDisplay\.showSnackbar\("Rebble speech recognition requires a Rebble subscription"\)\n)'
+         r"[ \t]*showSignInDialog = true\n",
+         r"\1")
+    bug_report = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt"
+    edit(bug_report, r"^[ \t]*var showSignInDialog by remember \{ mutableStateOf\(false\) \}\n", "")
+    remove_kotlin_block(bug_report, r"^[ \t]*if \(showSignInDialog\) \{")
+    for path in (settings_screen, bug_report):
+        edit(path, r"^import coredevices\.ui\.SignInDialog\n", "")
+
+    # State left from the removed account and telemetry settings.
+    edit(settings_screen,
+         r"^    val coreUser by Firebase\.auth\.authStateChanged\.map \{\n"
+         r"        it\?\.emailOrNull\n"
+         r"    \}\.distinctUntilChanged\(\)\n"
+         r"        \.collectAsState\(Firebase\.auth\.currentUser\?\.emailOrNull\)\n", "")
+    edit(settings_screen,
+         r"^    val (analyticsBackend: AnalyticsBackend|usersDao: UsersDao|coreAnalytics: CoreAnalytics) = koinInject\(\)\n",
+         "", expect=3)
+    edit(settings_screen,
+         r"^    val enable(Firebase|Memfault|Mixpanel) = remember \{ mutableStateOf\(settings\.getBoolean\(KEY_ENABLE_\w+_UPLOADS, true\)\) \}\n",
+         "", expect=3)
+    edit(settings_screen, r"^            enable(Firebase|Memfault|Mixpanel),\n", "", expect=3)
+    edit(settings_screen,
+         r"^object SettingsKeys \{\n(?:    const val KEY_ENABLE_\w+_UPLOADS = \"\w+\"\n){3}\}\n\n", "")
+    edit(settings_screen,
+         r"^import (coredevices\.analytics\.(AnalyticsBackend|CoreAnalytics|setUser)"
+         r"|coredevices\.firestore\.UsersDao"
+         r"|coredevices\.pebble\.ui\.SettingsKeys\.KEY_ENABLE_\w+_UPLOADS"
+         r"|coredevices\.util\.emailOrNull"
+         r"|dev\.gitlive\.firebase\.(Firebase|auth\.auth|crashlytics\.crashlytics)"
+         r"|kotlinx\.coroutines\.flow\.(distinctUntilChanged|map))\n",
+         "", expect=13)
+
+    # Nothing depends on the stand-ins for Core's noise-suppression library (in REMOVED).
+    edit("settings.gradle.kts", r'^include\(":krisp-stubs"\)\n', "")
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1433,6 +1556,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_index_ring(settings_screen)
     remove_core_speech(settings_screen)
     confirm_external_input()
+    remove_core_account_screens(settings_screen)
 
     if extra_abis:
         edit(
