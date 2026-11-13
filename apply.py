@@ -1206,6 +1206,30 @@ def remove_core_support_chat() -> None:
          r'(?:            .*\n){2}        </service>\n', "")
 
 
+def remove_crashlytics() -> None:
+    """Remove the calls into Crashlytics, Google's crash reporting.
+
+    Orb has no Firebase, and the stand-in Crashlytics drops everything, so a log writer that
+    forwarded every log line and the crash-context keys the app set were inert. The file log
+    (FileLogWriter) is unchanged; Share Logs still includes it.
+    """
+    logging = "composeApp/src/commonMain/kotlin/coredevices/coreapp/util/logging.kt"
+    remove_kotlin_block(logging, r"^    Logger\.addLogWriter\(object : LogWriter\(\) \{")
+    edit(logging,
+         r"^    try \{\n        // Cactus logging is handled natively in the vendored SDK\n"
+         r"    \} catch \(e: Exception\) \{\n        Logger\.e\(e\) \{ \"Failed to initialize Cactus logging\" \}\n    \}\n",
+         "")
+    edit(logging, r"^import dev\.gitlive\.firebase\.(Firebase|crashlytics\.crashlytics)\n", "", expect=2)
+
+    delegate = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleAppDelegate.kt"
+    remove_kotlin_block(delegate,
+                        r"^            GlobalScope\.launch \{(?=\n                libPebble\.watches\.mapNotNull \{ watches ->\n"
+                        r"                    watches\.maxByOrNull)")
+    edit(delegate, r'^[ \t]*Firebase\.crashlytics\.setCustomKey\("active_pkjs_sessions", activeSessions\.size\)\n', "")
+    edit(delegate, r"^[ \t]*Firebase\.crashlytics\.setCustomKey\(\n(?:[ \t]+.*\n){2}[ \t]*\)\n", "", expect=3)
+    edit(delegate, r"^import dev\.gitlive\.firebase\.(Firebase|crashlytics\.crashlytics)\n", "", expect=(1, 2))
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -1631,6 +1655,7 @@ def apply(extra_abis: list[str]) -> None:
     confirm_external_input()
     remove_core_account_screens(settings_screen)
     remove_core_support_chat()
+    remove_crashlytics()
 
     if extra_abis:
         edit(

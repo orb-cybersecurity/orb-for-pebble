@@ -16,7 +16,6 @@ gradle.lifecycle.beforeProject {
                 "dev.gitlive:firebase-firestore",
                 "dev.gitlive:firebase-storage",
                 "dev.gitlive:firebase-common-internal",
-                "dev.gitlive:firebase-crashlytics",
             ).forEach { substitute(module(it)).using(project(":firebase-stubs")) }
             // Built from source; see orb/speex.
             substitute(module("io.github.coredevices.speex:speex")).using(project(":speex"))
