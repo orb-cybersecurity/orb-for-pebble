@@ -22,11 +22,14 @@ Removed, compared with the official app:
 
 - Firebase (sign-in, Firestore, Storage, Crashlytics), Google sign-in, Google Play in-app
   updates and Firebase Cloud Messaging. There is no Core account in Orb, so nothing that needs
-  one works: cloud locker sync, remote bug reports, cloud speech recognition.
+  one works: cloud locker sync, submitting bug reports to Core, battery history, cloud speech
+  recognition, and the update check for watches made by Core (Core's update server answers
+  only signed-in accounts). Orb hides the settings for these. Bug reports can still be saved
+  and shared as a file. Firmware for older Pebble watches still comes from Rebble.
 - Mixpanel analytics.
 - The Cactus speech engine, which is shipped only as a prebuilt binary.
 - The Index 01 ring's radio library, which has no public source. Core's ring code is still
-  compiled, but no ring can be found or paired.
+  compiled, but no ring can be found or paired, and Orb hides the option to add one.
 - The health library's Google Fit fallback. Health Connect is still used where the phone has it.
 
 Replaced:
