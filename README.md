@@ -22,8 +22,8 @@ comes first when the two pull in different directions.
 ## Status
 
 Orb is early in development and currently based on Core's 1.18.0.1 release.
-It has been tested on GrapheneOS with a real watch. The first release will be
-published on GitHub as a signed APK, installed and updated with Obtainium.
+It has been tested on GrapheneOS with a real watch. Releases are published on
+GitHub as signed APKs, installed and updated with Obtainium.
 
 Dictation does not work yet. Orb hands it to the phone's speech recognition
 service, and no free recognizer currently transcribes the watch's audio:
@@ -96,7 +96,7 @@ uploads. Data the watch offers for them is dropped on the phone.
 Orb is installed and updated with [Obtainium](https://obtainium.imranr.dev),
 which fetches apps directly from their release pages, with no app store account and
 no Google Play services. Orb is not in the GrapheneOS App Store, Accrescent or Google
-Play.
+Play. Accrescent is the goal once it accepts new developers again.
 
 1. Install Obtainium from its
    [releases page](https://github.com/ImranR98/Obtainium/releases) or from F-Droid.
@@ -110,12 +110,16 @@ is a single APK signed with Orb's release key, and Android refuses an update sig
 with any other key, so a replaced download can't overwrite the installed app. Each
 release lists the signing certificate's SHA-256 fingerprint, so you can check the
 first install against it (for example with
-[AppVerifier](https://github.com/soupslurpr/AppVerifier)).
+[AppVerifier](https://github.com/soupslurpr/AppVerifier)). It is the same for every
+release:
+
+```
+2e3e6c81aa66f5f11ac8d4cbe369e5ec7e98019ef0f4aaa5259c0c1421154621
+```
 
 You can also download the APK from
 [GitHub Releases](https://github.com/orb-cybersecurity/orb-for-pebble/releases)
-and install it by hand. Nothing will then tell you about updates. Until the first
-release is published, build from source (see below).
+and install it by hand. Nothing will then tell you about updates.
 
 F-Droid will follow once Orb meets F-Droid's requirement for a period of active
 development.
