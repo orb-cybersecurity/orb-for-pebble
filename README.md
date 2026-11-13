@@ -23,9 +23,8 @@ Removed, compared with the official app:
 - Firebase (sign-in, Firestore, Storage, Crashlytics), Google sign-in, Google Play in-app
   updates and Firebase Cloud Messaging. There is no Core account in Orb, so nothing that needs
   one works: cloud locker sync, submitting bug reports to Core, battery history, cloud speech
-  recognition, and the update check for watches made by Core (Core's update server answers
-  only signed-in accounts). Orb hides the settings for these. Bug reports can still be saved
-  and shared as a file. Firmware for older Pebble watches still comes from Rebble.
+  recognition. Orb hides the settings for these. Bug reports can still be saved and shared as
+  a file.
 - Mixpanel analytics.
 - The Cactus speech engine, which is shipped only as a prebuilt binary.
 - The Index 01 ring's radio library, which has no public source. Core's ring code is still
@@ -34,6 +33,13 @@ Removed, compared with the official app:
 
 Replaced:
 
+- PebbleOS updates for watches made by Core come from Core's public releases on GitHub, since
+  Core's update server answers only signed-in accounts. Orb offers the newest release that
+  passes its checks: not a draft or pre-release, a bundle for the watch's board with a
+  published SHA-256 digest, a download that matches it, and manifests naming that board and
+  version with matching CRCs. If the newest fails, Orb tries the next older one that is still
+  newer than what the watch runs. A specific version can be pinned under Settings → Debug
+  (shown after turning on "Show debug options"). Older Pebble watches still update from Rebble.
 - Dictation uses the phone's speech recognition service: whichever recognizer app is installed
   and selected. Choose "System (On-Device)" under speech settings. This needs Android 13 or
   newer and a recognizer app that accepts recorded audio.

@@ -460,6 +460,15 @@ def apply(extra_abis: list[str]) -> None:
         'title = "Share Logs"',
     )
 
+    # Core's update server answers only signed-in accounts; take Core's watches' firmware from
+    # Core's GitHub releases instead (overlay: pebble/.../firmware/GitHubFirmware.kt).
+    util_module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(util_module, r"^import coredevices\.api\.EngDashOtaApiImpl\n",
+         "import coredevices.pebble.firmware.GitHubFirmwareApi\n")
+    edit(util_module, r"single \{ EngDashOtaApiImpl\(\) \} bind EngDashOtaApi::class",
+         "single { GitHubFirmwareApi(get(), get()) } bind EngDashOtaApi::class")
+    edit(settings_screen, r"^(\s*)\) \+ watchPrefs\n", r"\1) + watchPrefs + orbPinnedFirmwareSetting()\n")
+
     # Battery history is a page on Core's server for signed-in accounts.
     edit(
         settings_screen,
