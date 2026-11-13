@@ -2,9 +2,12 @@
 # tested with the code; the copy that counts is the one merged into fdroiddata.
 Categories:
   - Connectivity
+  - Sports & Health
 License: GPL-3.0-only
+AuthorName: Gaunkle
 SourceCode: https://codeberg.org/Gaunkle/orb-for-pebble
 IssueTracker: https://codeberg.org/Gaunkle/orb-for-pebble/issues
+Changelog: https://codeberg.org/Gaunkle/orb-for-pebble/src/branch/main/fastlane/metadata/android/en-US/changelogs
 
 AutoName: Orb
 
@@ -20,9 +23,28 @@ Builds:
     gradle:
       - yes
     prebuild: python3 ../../apply.py
+    scandelete:
+      - third_party/kotlin-speex/library/build.gradle.kts
+      - third_party/kotlin-speex/library/test-data
+    ndk: r28b
+
+MaintainerNotes: |-
+  The repository holds no copy of Core's source. mobileapp/ is Core's repository as a
+  submodule, pinned to a release tag, and apply.py turns it into Orb: it copies overlay/ over
+  the checkout and makes a list of small edits, each asserting how often it matched, and checks
+  every upstream file it replaces against a recorded hash. A Core change that needs a human
+  look therefore fails the build instead of slipping through.
+
+  Speex, which decodes dictation audio from the watch, is built from source
+  (third_party/kotlin-speex, the commit Core published) with NDK r28b, in place of Core's
+  prebuilt AAR. scandelete removes that project's own build file, which Orb does not use, and
+  its test recording.
+
+  Cleartext traffic stays allowed as in Core's app: watch apps' JavaScript makes HTTP requests
+  through the phone, and many existing watch apps use plain-HTTP endpoints.
 
 AutoUpdateMode: Version
-UpdateCheckMode: Tags
+UpdateCheckMode: Tags ^[0-9.]+-orb[0-9]+$
 UpdateCheckData: version.properties|versionCode=(\d+)|.|versionName=(.+)
 CurrentVersion: 1.18.0.1-orb1
 CurrentVersionCode: 118000011
