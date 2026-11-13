@@ -19,6 +19,9 @@ jobs:
           submodules: true
       - name: Apply the overlay
         run: python3 apply.py
+      - name: Run Orb's unit tests
+        working-directory: mobileapp
+        run: ./gradlew :pebble:testAndroidHostTest --tests 'coredevices.pebble.firmware.GitHubFirmwareTest' --no-daemon
       - name: Build the release APK
         working-directory: mobileapp
         run: ./gradlew :androidApp:assembleRelease --no-daemon --stacktrace
