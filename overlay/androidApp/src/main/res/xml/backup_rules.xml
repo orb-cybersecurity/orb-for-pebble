@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 8 to 11: the same selection as data_extraction_rules.xml, which explains it. -->
+<full-backup-content>
+    <include domain="database" path="." requireFlags="clientSideEncryption" />
+    <include domain="sharedpref" path="." requireFlags="clientSideEncryption" />
+    <include domain="file" path="pbw/" requireFlags="clientSideEncryption" />
+</full-backup-content>

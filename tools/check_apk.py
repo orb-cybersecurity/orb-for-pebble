@@ -3,13 +3,21 @@
 
 Usage: python3 tools/check_apk.py path/to/app.apk
 
-Reads the class names straight from the APK's dex files, so the result describes the artifact
-and not the build scripts.
+Reads the class names straight from the APK's dex files, and the manifest and the resources it
+names through aapt2, so the result describes the artifact and not the build scripts: a library
+merged into the manifest can't change what Orb backs up or let plain HTTP back in unnoticed.
+
+aapt2 is taken from $AAPT2, else from the newest build-tools in $ANDROID_HOME (default
+~/Android/Sdk).
 """
 
+import os
+import re
 import struct
+import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
 FORBIDDEN_CLASSES = {
     "Lcom/google/firebase/": "Firebase SDK",
@@ -60,6 +68,124 @@ def dex_classes(data: bytes) -> tuple[set[str], set[str]]:
     return defined, set(types)
 
 
+# What Android's backup must copy for a restored phone to have Orb as it was (see
+# overlay/androidApp/src/main/res/xml/data_extraction_rules.xml), and nothing else.
+BACKUP_INCLUDES = {("database", "."), ("sharedpref", "."), ("file", "pbw/")}
+
+
+def aapt2() -> str:
+    if os.environ.get("AAPT2"):
+        return os.environ["AAPT2"]
+    sdk = Path(os.environ.get("ANDROID_HOME", Path.home() / "Android" / "Sdk"))
+    tools = sorted(sdk.glob("build-tools/*/aapt2"), key=lambda p: [int(n) if n.isdigit() else n for n in re.split(r"[.-]", p.parent.name)])
+    if not tools:
+        raise SystemExit(f"check_apk: no aapt2 under {sdk}; set AAPT2 or ANDROID_HOME")
+    return str(tools[-1])
+
+
+class Node:
+    def __init__(self, tag: str):
+        self.tag, self.attrs, self.children = tag, {}, []
+
+    def find(self, tag: str) -> list["Node"]:
+        found = [c for c in self.children if c.tag == tag]
+        for child in self.children:
+            found += child.find(tag)
+        return found
+
+
+ATTR = re.compile(r'^A: (?:\S+:)?(\w+)(?:\(0x[0-9a-f]+\))?=(?:"((?:[^"\\]|\\.)*)"|(\S+))')
+
+
+def xmltree(apk: str, path: str) -> Node:
+    """Parse `aapt2 dump xmltree` output into a tree of elements and their attributes."""
+    out = subprocess.run([aapt2(), "dump", "xmltree", "--file", path, apk],
+                         check=True, capture_output=True, text=True).stdout
+    root, stack = Node("#document"), []
+    for line in out.splitlines():
+        depth = len(line) - len(line.lstrip())
+        text = line.strip()
+        if text.startswith("E: "):
+            node = Node(text[3:].split(" ")[0])
+            while stack and stack[-1][0] >= depth:
+                stack.pop()
+            (stack[-1][1] if stack else root).children.append(node)
+            stack.append((depth, node))
+        elif text.startswith("A: ") and stack:
+            m = ATTR.match(text)
+            if m:
+                stack[-1][1].attrs[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
+    return root
+
+
+def resource_files(apk: str) -> dict[str, tuple[str, str]]:
+    """Resource ID (0x7f...) -> (type/name, file in the APK), for file resources."""
+    out = subprocess.run([aapt2(), "dump", "resources", apk], check=True, capture_output=True, text=True).stdout
+    files, current = {}, None
+    for line in out.splitlines():
+        m = re.match(r"\s*resource (0x[0-9a-f]+) (\S+)", line)
+        if m:
+            current = m.groups()
+            continue
+        m = re.match(r"\s*\(\) \(file\) (\S+)", line)
+        if m and current:
+            files[current[0]] = (current[1], m.group(1))
+    return files
+
+
+def check_manifest(apk: str) -> list[str]:
+    problems = []
+    manifest = xmltree(apk, "AndroidManifest.xml")
+    application = manifest.find("application")[0]
+    files = resource_files(apk)
+
+    def rules(attr: str, name: str) -> Node | None:
+        ref = application.attrs.get(attr, "").lstrip("@")
+        resource, path = files.get(ref, (None, None))
+        if resource != name:
+            problems.append(f"manifest {attr} is {resource or 'unset'}, not Orb's {name}")
+            return None
+        return xmltree(apk, path)
+
+    if application.attrs.get("allowBackup") != "true":
+        problems.append("backup is not allowed: a restore can't bring Orb's data back")
+    if application.attrs.get("usesCleartextTraffic") not in (None, "false"):
+        problems.append("the manifest allows plain HTTP (usesCleartextTraffic)")
+
+    extraction = rules("dataExtractionRules", "xml/data_extraction_rules")
+    if extraction:
+        for kind in ("cloud-backup", "device-transfer"):
+            sections = extraction.find(kind)
+            if len(sections) != 1:
+                problems.append(f"data extraction rules have {len(sections)} <{kind}> sections")
+                continue
+            got = {(n.attrs.get("domain"), n.attrs.get("path")) for n in sections[0].find("include")}
+            if got != BACKUP_INCLUDES or sections[0].find("exclude"):
+                problems.append(f"<{kind}> copies {sorted(got)}, expected {sorted(BACKUP_INCLUDES)}")
+        cloud = extraction.find("cloud-backup")
+        if cloud and cloud[0].attrs.get("disableIfNoEncryptionCapabilities") != "true":
+            problems.append("cloud backup is not limited to services that encrypt on the phone")
+    full = rules("fullBackupContent", "xml/backup_rules")
+    if full:
+        includes = full.find("include")
+        got = {(n.attrs.get("domain"), n.attrs.get("path")) for n in includes}
+        if got != BACKUP_INCLUDES or full.find("exclude"):
+            problems.append(f"backup rules copy {sorted(got)}, expected {sorted(BACKUP_INCLUDES)}")
+        if any("clientSideEncryption" not in n.attrs.get("requireFlags", "") for n in includes):
+            problems.append("backup rules copy data without requiring client-side encryption")
+
+    network = rules("networkSecurityConfig", "xml/network_security_config")
+    if network:
+        for config in network.find("base-config") + network.find("domain-config"):
+            if config.attrs.get("cleartextTrafficPermitted") not in (None, "false"):
+                problems.append(f"the network security config allows plain HTTP in <{config.tag}>")
+
+    for component in manifest.find("receiver") + manifest.find("activity") + manifest.find("service"):
+        if component.attrs.get("name", "").startswith("coredevices.coreapp.debug."):
+            problems.append(f"debug component {component.attrs['name']} is in the manifest")
+    return problems
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__)
@@ -87,13 +213,15 @@ def main() -> int:
         if referenced:
             problems.append(f"{len(referenced)} references to missing {what} classes, e.g. {referenced[0]}")
 
+    problems += check_manifest(sys.argv[1])
+
     print(f"{sys.argv[1]}: {len(defined)} classes in {sum(n.endswith('.dex') for n in names)} dex files")
     if problems:
         print("FAIL")
         for problem in problems:
             print("  " + problem)
         return 1
-    print("OK: no forbidden classes or native libraries")
+    print("OK: no forbidden classes or native libraries; backup rules, HTTPS-only and manifest as expected")
     return 0
 
 

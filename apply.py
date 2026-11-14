@@ -73,6 +73,12 @@ REPLACED = {
     # Orb's on-phone list of store apps in place of Core's cloud locker (see remove_cloud_locker()).
     "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreLocker.kt":
         "c23f89a47c3da5e07aa942979ca59bcc7b74ec92338ff48a47986fe4a933d749",
+    # Orb's backup rules in place of Core's, which only excluded Firebase sign-in files (see
+    # set_backup_rules()).
+    "androidApp/src/main/res/xml/backup_rules.xml":
+        "31731add4334f11a7fa5a4e4d6479bfd43f71c079023ddb8ea9a4f4b0a7de97e",
+    "androidApp/src/main/res/xml/data_extraction_rules.xml":
+        "c315d40bf10aa1ee14de35ffee01b39bc90adf68df80aebb10f7ab71e3a14783",
 }
 
 # Prebuilt binaries and files only they need, and Core's launcher artwork.
@@ -200,16 +206,20 @@ REMOVED = [
     "util/src/iosMain/kotlin/coredevices/util/integrations",
     "util/src/commonMain/kotlin/coredevices/util/OAuthRedirectHandler.kt",
     "pebble/src/commonMain/kotlin/coredevices/pebble/services/OAuthService.kt",
-    "util/src/commonMain/kotlin/coredevices/util/queue/PersistentQueueScheduler.kt",
-    "util/src/commonMain/kotlin/coredevices/util/queue/QueueTaskRepository.kt",
-    "util/src/commonMain/kotlin/coredevices/util/queue/RecoverableTaskException.kt",
+    "util/src/commonMain/kotlin/coredevices/util/queue",
     "util/src/commonTest/kotlin/coredevices/util/queue",
     "util/src/commonMain/kotlin/coredevices/util/transcription/NullTranscriptionService.kt",
     "pebble/src/commonMain/kotlin/coredevices/pebble/account/FirestoreKnownWatch.kt",
     "util/src/commonMain/kotlin/coredevices/database/UserConfig.kt",
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/PermissionRequestHandler.kt",
-    # The in-app web page viewer, last used for Core's help site (see open_help_in_browser()).
+    # The in-app web page viewer, last used for Core's help site (see remove_help_page()).
     "util/src/commonMain/kotlin/coredevices/ui/GenericWebViewScreen.kt",
+    # Core's test hooks for adb, and a Bluetooth pairing logger (see remove_debug_receivers()).
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/debug",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/util/BluetoothPairingDebugLogger.kt",
+    # Tables of Core's telemetry uploads and sync queue (see drop_core_telemetry_tables()).
+    *(f"util/src/commonMain/kotlin/coredevices/database/{name}.kt" for name in (
+        "HeartbeatEntity", "MemfaultChunkEntity", "AnalyticsHeartbeatEntity", "SyncTaskEntity")),
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -735,6 +745,26 @@ def replace_literal(path: str, old: str, new: str, expect: int = 1) -> None:
     if count != expect:
         raise ApplyError(f"{path}: expected {expect} occurrence(s) of {old!r}, found {count}")
     file.write_text(text.replace(old, new))
+
+
+def unwrap_kotlin_block(path: str, head: str) -> None:
+    """Replace the block that the line `head` opens with its body, one level less indented.
+
+    `head` is the whole opening line, ending in "{\n"; the block must have no else branch.
+    """
+    file = APP / path
+    text = file.read_text()
+    if text.count(head) != 1:
+        raise ApplyError(f"{path}: expected one {head.strip()!r}")
+    start = text.index(head)
+    close = kotlin_bracket_pairs(text)[start + len(head) - 2]
+    body = text[start + len(head):text.rfind("\n", 0, close) + 1]
+    indent = len(head) - len(head.lstrip()) + 4
+    body = "".join(line[4:] if line.startswith(" " * indent) else line for line in body.splitlines(True))
+    end = text.index("\n", close) + 1
+    if text[close + 1:end].strip():
+        raise ApplyError(f"{path}: {head.strip()!r} has an else branch")
+    file.write_text(text[:start] + body + text[end:])
 
 
 def confirm_external_input() -> None:
@@ -1467,8 +1497,8 @@ def remove_analytics() -> None:
     Events, heartbeat counters and watch-connection states were recorded and summarised for an
     analytics backend Orb never had (its Android backend was Orb's do-nothing stand-in), so the
     work only filled the phone's database. The analytics code goes (REMOVED), with Orb's
-    stand-in, and so do the database accessors of the three telemetry tables. The tables stay in
-    the database's schema, empty, so existing installs need no migration.
+    stand-in, and so do the database accessors of the three telemetry tables, whose tables
+    drop_core_telemetry_tables() deletes.
     """
     android_module = "composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt"
     edit(android_module, r"^import coredevices\.analytics\.createAndroidAnalytics\n", "")
@@ -1485,9 +1515,6 @@ def remove_analytics() -> None:
          r"^    abstract fun (analyticsDao\(\): HeartbeatStateDao|memfaultChunkDao\(\): MemfaultChunkDao"
          r"|analyticsHeartbeatDao\(\): AnalyticsHeartbeatDao)\n",
          "", expect=3)
-    for file, dao in (("HeartbeatEntity", "HeartbeatStateDao"), ("MemfaultChunkEntity", "MemfaultChunkDao"),
-                      ("AnalyticsHeartbeatEntity", "AnalyticsHeartbeatDao")):
-        remove_kotlin_block(f"{database}/{file}.kt", rf"^@Dao\ninterface {dao} \{{")
 
     app_delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
     edit(app_delegate, r"^import coredevices\.analytics\.(AnalyticsBackend|CoreAnalytics|setUser)\n", "", expect=3)
@@ -1536,12 +1563,9 @@ def remove_sync_manager() -> None:
 
     It retries queued work through WorkManager, but in Orb no task type has a handler and nothing
     queues a task, so it only ever resumed an empty queue. The queue code goes (REMOVED), with its
-    database accessor; the table stays in the schema, empty, so existing installs need no
-    migration. Core's periodic background sync (SyncWorker) is separate and unchanged.
+    database accessor; drop_core_telemetry_tables() deletes its table. Core's periodic
+    background sync (SyncWorker) is separate and unchanged.
     """
-    entity = "util/src/commonMain/kotlin/coredevices/database/SyncTaskEntity.kt"
-    remove_kotlin_block(entity, r"^@Dao\ninterface SyncTaskDao : SyncTaskStore \{")
-    edit(entity, r"^import coredevices\.util\.sync\.SyncTaskStore\n", "")
     edit("util/src/commonMain/kotlin/coredevices/database/CoreDatabase.kt",
          r"^    abstract fun syncTaskDao\(\): SyncTaskDao\n", "")
 
@@ -1569,8 +1593,7 @@ def remove_dead_leftovers() -> None:
     - Core's OAuth integrations (they served the removed ring's apps): nothing asks for the
       launcher, so the redirect handler only swallowed links whose host is "oauth". Such links now
       reach the normal link handling, which ignores them.
-    - The persistent task queue behind the removed telemetry uploads. Its TaskStatus stays: the
-      kept sync-task table stores it.
+    - The persistent task queue behind the removed telemetry uploads.
     - A null speech service, the Firestore watch record, the Firestore user config record and an
       unused permission helper.
     """
@@ -1584,22 +1607,8 @@ def remove_dead_leftovers() -> None:
     main_activity = "composeApp/src/androidMain/kotlin/coredevices/coreapp/MainActivity.kt"
     edit(main_activity, r"^import coredevices\.util\.OAuthRedirectHandler\n", "")
     edit(main_activity, r"^    private val oAuthRedirectHandler: OAuthRedirectHandler by inject\(\)\n", "")
-    # Unwrap `if (!oAuthRedirectHandler.handleOAuthRedirect(uri)) { ... }`: its body always runs now.
-    file = APP / main_activity
-    text = file.read_text()
-    head = "        if (!oAuthRedirectHandler.handleOAuthRedirect(uri)) {\n"
-    if text.count(head) != 1:
-        raise ApplyError(f"{main_activity}: expected one OAuth redirect check")
-    start = text.index(head)
-    close = kotlin_bracket_pairs(text)[start + len(head) - 2]
-    body = text[start + len(head):text.rfind("\n", 0, close) + 1]
-    body = "".join(line[4:] if line.startswith("            ") else line for line in body.splitlines(True))
-    end = text.index("\n", close) + 1
-    if text[close + 1:end].strip():
-        raise ApplyError(f"{main_activity}: the OAuth redirect check has an else branch")
-    file.write_text(text[:start] + body + text[end:])
-
-    remove_kotlin_block("util/src/commonMain/kotlin/coredevices/util/queue/QueueTask.kt", r"^interface QueueTask \{")
+    # Its body always runs now.
+    unwrap_kotlin_block(main_activity, "        if (!oAuthRedirectHandler.handleOAuthRedirect(uri)) {\n")
 
 
 def harden_release_manifest() -> None:
@@ -1628,26 +1637,151 @@ def harden_release_manifest() -> None:
     edit(deep_links, r"^        private const val GITHUB_OAUTH_CALLBACK_(HOST|PATH): String = .*\n", "", expect=2)
 
 
-def open_help_in_browser() -> None:
-    """Open Core's getting-started guide in the browser instead of inside the app.
+def remove_help_page() -> None:
+    """Remove "Getting Started & Troubleshooting": Core's guide to its own app.
 
-    The guide is an Intercom help centre. In the browser, the user's own protections apply and
-    Orb embeds no third-party help desk; the link goes straight to the article instead of
-    through Core's link shortener. The in-app page viewer had no other use and is removed.
+    The guide lives in Core's Intercom help centre and describes Core's app, accounts and
+    support, much of which Orb doesn't have. The in-app page viewer that showed it had no other
+    use and goes too.
     """
-    settings_screen = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt"
-    edit(settings_screen,
-         r"^([ \t]*)nav\.navigateTo\(CommonRoutes\.TroubleshootingRoute\)\n",
-         r'\1// No browser installed: nothing to open it in.\n'
-         r'\1runCatching { uriHandler.openUri("https://help.repebble.com/en/articles/14474380-pebble-watch-getting-started-guide") }\n')
-    edit(settings_screen,
-         r"^(    val scope = rememberCoroutineScope\(\)\n    val appContext = koinInject<AppContext>\(\)\n)",
-         r"\1    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current\n")
+    remove_setting("pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt",
+                   "Getting Started & Troubleshooting")
     nav_host = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt"
     remove_kotlin_block(nav_host, r"^[ \t]*composable<CommonRoutes\.TroubleshootingRoute> \{")
     edit(nav_host, r"^import coredevices\.ui\.GenericWebViewScreen\n", "")
     edit("util/src/commonMain/kotlin/CommonRoutes.kt",
          r"^    @Serializable\n    data object TroubleshootingRoute : CoreRoute\n\n", "")
+
+
+def remove_debug_receivers() -> None:
+    """Take Core's adb test hooks out of the app.
+
+    Three broadcast receivers let a shell user attach an emulated watch, start the LAN developer
+    connection and write any app setting. Only the shell and the system could send to them
+    (android.permission.DUMP), but they are test tooling, not features. A pairing logger wrote
+    every Bluetooth pairing request, its key included, into the log that Share Logs sends.
+    """
+    edit("androidApp/src/main/AndroidManifest.xml",
+         r"^\n        <!--\n            Attaches a QEMU emulator watch for automated testing\.(?:.*\n)*?"
+         r'                <action android:name="coredevices\.coreapp\.SET_SETTING" />\n'
+         r"            </intent-filter>\n        </receiver>\n", "")
+    main_application = "composeApp/src/androidMain/kotlin/coredevices/coreapp/MainApplication.kt"
+    edit(main_application, r"^import coredevices\.coreapp\.util\.registerBluetoothPairingDebugLogger\n", "")
+    edit(main_application, r"^        registerBluetoothPairingDebugLogger\(this\)\n", "")
+
+
+def remove_qa_flag() -> None:
+    """Remove Core's QA build flag. Builds without the QA variable got QA, so it was always on.
+
+    The screens it gated are Orb's own first-run and log-sharing screens and stay, without the
+    condition. What else read it was unused: a bug-report button nothing shows, and a request for
+    storage permissions the app doesn't declare.
+    """
+    nav_host = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt"
+    unwrap_kotlin_block(nav_host, "        if (CommonBuildKonfig.QA) {\n")
+    edit(nav_host, r"^import coredevices\.util\.CommonBuildKonfig\n", "")
+    button = "util/src/commonMain/kotlin/BugReportButton.kt"
+    remove_kotlin_block(button, r"^@Composable\nfun BugReportButton\(")
+    edit(button, r"^import (?:androidx\.compose\..*|coredevices\.util\.CommonBuildKonfig|kotlinx\.serialization\.json\.Json|org\.koin\.compose\.koinInject)\n", "", expect=10)
+    edit(button, r"^private val jsonPretty = Json \{\n(?:.*\n)*?\}\n\n", "")
+
+    edit("util/src/androidMain/kotlin/coredevices/util/AndroidPermissionRequester.kt",
+         r"^    Permission\.ExternalStorage -> if \(.*\n(?:.*\n)*?    \} else emptyList\(\)\n", "")
+    edit("util/src/commonMain/kotlin/coredevices/util/Permission.kt", r"^    ExternalStorage,\n", "")
+    edit("util/src/commonMain/kotlin/coredevices/util/PermissionRequester.kt",
+         r"^    Permission\.ExternalStorage -> .*\n", "", expect=2)
+    edit("util/src/iosMain/kotlin/coredevices/util/IosPermissionRequester.kt",
+         r"^[ \t]*Permission\.ExternalStorage -> .*\n", "", expect=2)
+
+    gradle = "util/build.gradle.kts"
+    edit(gradle, r'^val enableQa = .*\n', "")
+    edit(gradle, r'^[ \t]*buildConfigField\(FieldSpec\.Type\.BOOLEAN, "QA", enableQa\.toString\(\)\)\n', "")
+
+
+def block_cleartext() -> None:
+    """Allow encrypted connections only. Orb itself only ever uses HTTPS; Core allowed plain HTTP
+    so that watchapps' own code and settings pages could reach servers that don't offer HTTPS.
+
+    The network security config decides this for the whole app, the WebViews included, and
+    makes the manifest's usesCleartextTraffic meaningless, so that attribute goes.
+    """
+    edit("androidApp/src/main/res/xml/network_security_config.xml",
+         r"^    <!-- This overrides android:usesCleartextTraffic in the manifest, which is ignored whenever a\n"
+         r"         network security config is present\. -->\n"
+         r'^    <base-config cleartextTrafficPermitted="true">\n',
+         '    <!-- HTTPS only, for Orb and for watchapps. -->\n'
+         '    <base-config cleartextTrafficPermitted="false">\n')
+    edit("androidApp/src/main/AndroidManifest.xml", r'^        android:usesCleartextTraffic="true"\n', "")
+
+
+def set_backup_rules() -> None:
+    """Back up what a new phone needs to have Orb as it was, and nothing else.
+
+    Android's backup, Seedvault on GrapheneOS, is how the locker moves to a new phone: Orb has
+    no account to keep it in. Orb's rules (the overlay's res/xml files, replacing Core's, which
+    only excluded Firebase sign-in files) say what is copied and why. The manifest states the
+    decision to allow backup at all.
+    """
+    # RestoredDataTest (overlay, androidApp/src/androidTest) checks on a device what a restore
+    # brings: Keystore-encrypted values from another phone, and Core's database schema.
+    gradle = "androidApp/build.gradle.kts"
+    edit(gradle, r"^(    androidTestImplementation\(libs\.kotlin\.test\)\n)",
+         r'\1    androidTestImplementation(project(":libpebble3"))\n'
+         r"    androidTestImplementation(libs.room.testing)\n"
+         r"    androidTestImplementation(libs.sqlite.bundled)\n")
+    with (APP / gradle).open("a") as file:
+        file.write('\n// Room\'s MigrationTestHelper reads the exported schemas from the test\'s assets.\n'
+                   'android.sourceSets.getByName("androidTest").assets.srcDir("../util/schema")\n')
+    edit("androidApp/src/main/AndroidManifest.xml", r"^(    <application\n)",
+         "    <!-- Backup is allowed on purpose: it is how Orb's data reaches a new phone, since there\n"
+         "         is no account to keep it in. res/xml/data_extraction_rules.xml says what it copies. -->\n"
+         r"\1")
+
+
+def drop_core_telemetry_tables() -> None:
+    """Drop four tables of Core's app database that nothing reads or writes in Orb.
+
+    They queued Memfault diagnostics, analytics heartbeats and their state, and the removed sync
+    tasks. The database moves to version 12, which deletes them; Room stores its schema in
+    overlay/util/schema.
+    """
+    database = "util/src/commonMain/kotlin/coredevices/database/CoreDatabase.kt"
+    edit(database,
+         r"^        (?:HeartbeatStateEntity|MemfaultChunkEntity|AnalyticsHeartbeatEntity|SyncTaskEntity)::class,\n",
+         "", expect=4)
+    edit(database, r"^    version = 11,\n", "    version = 12,\n")
+    edit(database, r"^(        AutoMigration\(from = 10, to = 11\),\n)",
+         r"\1        AutoMigration(from = 11, to = 12, spec = DropCoreTelemetryTables::class),\n")
+    edit(database, r"^(import androidx\.room\.Database\n)", r"\1import androidx.room.DeleteTable\n")
+    edit(database, r"^(import androidx\.room\.TypeConverters\n)",
+         r"\1import androidx.room.migration.AutoMigrationSpec\n")
+    with (APP / database).open("a") as file:
+        file.write(
+            "\n// Orb: Core's telemetry upload queues and sync tasks, which nothing in Orb uses.\n"
+            "@DeleteTable.Entries(\n"
+            '    DeleteTable(tableName = "HeartbeatStateEntity"),\n'
+            '    DeleteTable(tableName = "memfault_chunks"),\n'
+            '    DeleteTable(tableName = "analytics_heartbeats"),\n'
+            '    DeleteTable(tableName = "sync_tasks"),\n'
+            ")\n"
+            "class DropCoreTelemetryTables : AutoMigrationSpec\n"
+        )
+
+
+def remove_google_fit() -> None:
+    """Remove what is left of Google Fit: a function that opened the app or its Play Store page,
+    which nothing calls since its setting went, and the health library's request to see it."""
+    settings_screen = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt"
+    edit(settings_screen, r"^expect fun openGoogleFitApp\(uiContext: PlatformUiContext\?\)\n\n", "")
+    remove_kotlin_block("pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.android.kt",
+                        r"^actual fun openGoogleFitApp\(")
+    remove_kotlin_block("pebble/src/iosMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.ios.kt",
+                        r"^actual fun openGoogleFitApp\(")
+    edit("androidApp/src/main/AndroidManifest.xml", r"^(    <application\n)",
+         '    <queries>\n'
+         '        <package android:name="com.google.android.apps.fitness" tools:node="remove" />\n'
+         '    </queries>\n'
+         r"\1")
 
 
 def apply(extra_abis: list[str]) -> None:
@@ -2083,7 +2217,13 @@ def apply(extra_abis: list[str]) -> None:
     remove_sync_manager()
     remove_dead_leftovers()
     harden_release_manifest()
-    open_help_in_browser()
+    remove_help_page()
+    remove_debug_receivers()
+    remove_qa_flag()
+    block_cleartext()
+    set_backup_rules()
+    drop_core_telemetry_tables()
+    remove_google_fit()
 
     if extra_abis:
         edit(

@@ -32,9 +32,9 @@ records the phone's microphone instead of the audio Orb passes to it. Orb will u
 whichever of these gains support first.
 
 The watchface and app store works without an account: browsing the Pebble and
-Rebble stores, searching, and installing to the watch all work. Without an
-account, hearts (likes) and cloud locker sync (the installed apps list) are
-unavailable.
+Rebble stores, searching, and installing to the watch all work.
+[docs/no-account.md](docs/no-account.md) lists what a Core account would add, what
+Orb offers instead, and how to move Orb to a new phone with Android's backup.
 
 The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
 
@@ -54,6 +54,10 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   removes the ring's code entirely and has no plans to support the ring.
 - The health library's Google Fit fallback. Health Connect remains available
   where the phone supports it.
+- The link to Core's getting-started guide, which describes Core's app.
+- Core's test hooks for adb, which let a shell user attach an emulated watch,
+  start the developer connection or change any setting, and a Bluetooth pairing
+  logger that wrote pairing keys into the shared logs.
 
 ### Replaced
 
@@ -65,6 +69,11 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   account. Orb keeps it on the phone. Signed in to Rebble, Orb brings in your
   Rebble locker. A sync refreshes apps from the store they came from and never
   removes an installed app.
+- **Backup:** Orb's own rules say what Android's backup copies: the databases,
+  the settings file and apps opened from `.pbw` files, and nothing from caches or
+  logs. They go only to backup services that encrypt on the phone, or in a
+  device-to-device transfer such as Seedvault's. Core's rules only excluded
+  Firebase's files.
 - **Firmware updates for Core watches:** Orb uses Core's public GitHub releases
   because Core's update server requires an account. Older Pebble watches still
   update through Rebble. A version can be pinned under Settings → Debug after
@@ -97,9 +106,15 @@ Orb itself contacts only these services:
   service, with the coordinates they ask about.
 - **GitHub**, for firmware releases for Core watches.
 
-"Getting Started & Troubleshooting" and app store pages open in your browser.
-Watch apps you install run their own JavaScript on the phone and can contact their
-own servers, as on every Pebble app.
+App store pages open in your browser. Watch apps you install run their own
+JavaScript on the phone and can contact their own servers, as on every Pebble app.
+
+Every connection is encrypted. Orb allows no plain HTTP, for itself or for watch
+apps and their settings pages, so a watch app that uses an `http://` address
+can't reach it from Orb. Core's app allows it.
+
+[docs/no-account.md](docs/no-account.md) lists what using Orb without a Core
+account costs.
 
 Orb sends no telemetry and has no analytics. Mixpanel, Firebase, Crashlytics,
 Core's analytics and Core's watch analytics and Memfault diagnostics uploads are
@@ -160,7 +175,9 @@ Orb's changes again.
 
 Core's source is pinned as a submodule. `apply.py` applies Orb's overlay and edits,
 and stops if the upstream files no longer match the expected versions.
-`tools/check_apk.py` checks the APK for code Orb must not ship.
+`tools/check_apk.py` checks the APK for code Orb must not ship. It also checks that
+the manifest keeps Orb's backup rules and HTTPS-only setting, with no debug
+components. It reads the manifest with `aapt2` from the Android SDK.
 
 Orb removes the code that needs Google services or a Core account instead of
 stubbing it out, so nothing in the app only pretends to work. Speex, which Core
