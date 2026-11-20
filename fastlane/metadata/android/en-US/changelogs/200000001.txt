@@ -1,5 +1,6 @@
-- Based on Core 2.0.0.
-- Classic PebbleKit requires PebbleKit2 companion declarations; control requires authorization.
-- Blocks HTTP for Orb, watchapps and settings pages; trusts system CAs only.
-- Confirms imports, bounds downloads and verifies firmware; restores recovery updates and the notification install action.
-- Fixes companion cache dependence, image aspect ratios, temp-file cleanup and release checks.
+- Based on Core 2.0.0, without its new analytics.
+- HTTPS only, trusting system certificates only.
+- Firmware: no automatic downgrades, checked downloads; watches in recovery get updates again.
+- Phone apps and web pages need permission to reach watchapps; settings pages lose network access as soon as you revoke it.
+- Classic PebbleKit only works for apps that declare PebbleKit 2.
+- Fixes for settings pages, notification images and leftover downloads.

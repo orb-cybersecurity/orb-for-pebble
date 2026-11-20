@@ -4090,6 +4090,141 @@ def harden_config_pages_and_archives() -> None:
                     'logger.w { pkjsNetworkLog(PkjsNetworkLogCategory.REFUSED, url.toString()) }', expect=1)
 
 
+def fix_live_watchapp_network() -> None:
+    android = 'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt'
+    screen = 'pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt'
+    ios = 'pebble/src/iosMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.ios.kt'
+    bridge = 'pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageBridge.kt'
+    runner = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt'
+    sockets = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt'
+    config = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/LibPebbleConfig.kt'
+
+    # Browser sockets are blocked by an always-present CSP. The existing native manager is
+    # reached only through the origin/main-frame checked message listener, never a Java interface.
+    replace_literal(android, '''        network.csp?.let { WebViewCompat.addDocumentStartJavaScript(this, cspJs(it), setOf("*")) }
+        WebViewCompat.addDocumentStartJavaScript(this, configNetworkJs(context, network.csp), setOf("*"))''',
+                    '''        WebViewCompat.addDocumentStartJavaScript(this,
+            cspJs(coredevices.pebble.config.configPageCsp(network.domains, expectedUrl)), setOf("*"))
+        WebViewCompat.addDocumentStartJavaScript(this, configNetworkJs(context), setOf("*"))''', expect=1)
+    replace_literal(android, '    bridge.attach { js -> post {',
+                    '    bridge.attachNetworkSockets(uuid)\n    bridge.attach { js -> post {', expect=1)
+    edit(android, r'(?s)internal actual class ConfigPageNetwork\(val csp: String\?\) \{.*?\n\}\n\ninternal actual suspend fun configPageNetwork\(uuid: Uuid, domains: List<String>\?\) = ConfigPageNetwork\(.*?\n\)\n',
+         '''internal actual class ConfigPageNetwork(val domains: List<String>?) {
+    actual val enforced = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
+        WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+}
+
+internal actual suspend fun configPageNetwork(uuid: Uuid, domains: List<String>?) = ConfigPageNetwork(domains)
+''', expect=1)
+    edit(android, r'(?s)private fun configNetworkJs\(context: Context, csp: String\?\) =.*?\n    """\.trimIndent\(\)\n',
+         '''private fun configNetworkJs(context: Context) =
+    context.assets.open("realm_guard.js").bufferedReader().use { it.readText() } +
+        io.rebble.libpebblecommon.js.configPageWebSocketJs() +
+        "__pebbleGuardRealms(globalThis, null, false);"
+''', expect=1)
+    replace_literal(android, 'private const val CONFIG_NETWORK_NAMESPACE = "_PebbleConfigNet"\n\n', '', expect=1)
+    replace_literal(bridge, '    private val logger = Logger.withTag("ConfigPageBridge")', '''    private var networkSockets: ConfigPageSockets? = null
+
+    internal fun attachNetworkSockets(uuid: kotlin.uuid.Uuid) {
+        closeNetworkSockets()
+        networkSockets = ConfigPageSockets.create(scope, uuid, ::evaluate)
+    }
+
+    internal fun closeNetworkSockets() {
+        networkSockets?.close()
+        networkSockets = null
+    }
+
+    private val logger = Logger.withTag("ConfigPageBridge")''', expect=1)
+    replace_literal(bridge, '        when (call.method) {', '''        when (call.method) {
+            "socket" -> {
+                val answer = try {
+                    networkSockets?.dispatch(call.message) ?: error("network bridge unavailable")
+                } catch (e: Exception) {
+                    error("socket command refused")
+                }
+                reply(call.id, answer)
+            }''', expect=1)
+    replace_literal(bridge, '  global.__pebbleConfig = {', '''  global.__pebbleConfig = {
+    socket: function (command) { return call('socket', '', command); },''', expect=1)
+    replace_literal(sockets, '            handshakeHeaders(args.getOrNull(2)?.toString().orEmpty()),',
+                    '            handshakeHeaders(args.getOrNull(2)?.toString().orEmpty()),\n'
+                    '            (args.getOrNull(3) as? Number)?.toInt(),', expect=1)
+    replace_literal(sockets, 'private fun createInstance(url: String, protocols: String, headers: Map<String, String>): Int',
+                    'private fun createInstance(url: String, protocols: String, headers: Map<String, String>, externalId: Int? = null): Int', expect=1)
+    replace_literal(sockets, '            Instance(++lastInstance, url, protocols, headers).also { instances[it.id] = it }',
+                    '''            val id = externalId ?: (lastInstance + 1)
+            require(id > 0 && id !in instances) { "Invalid socket instance" }
+            lastInstance = maxOf(lastInstance, id)
+            Instance(id, url, protocols, headers).also { instances[it.id] = it }''', expect=1)
+    # Browser WebSockets refuse redirects. A native upgrade must not follow one around its gate.
+    replace_literal(sockets, '    private val logger = Logger.withTag("WebSocketManager")',
+                    '''    private val logger = Logger.withTag("WebSocketManager")
+    private val socketClientLazy = lazy { client.config { followRedirects = false } }
+    private val socketClient by socketClientLazy''', expect=1)
+    replace_literal(sockets, '        all.forEach { it.cancel() }',
+                    '        all.forEach { it.cancel() }\n'
+                    '        if (socketClientLazy.isInitialized()) socketClient.close()', expect=1)
+    replace_literal(sockets, 'val ws = client.webSocketSession(url)',
+                    'val ws = socketClient.webSocketSession(url)', expect=1)
+
+    # Closing the page on lost effective grants also stops long-lived EventSource/resource loads
+    # and discards the redirect CSP snapshot. Usage timestamps and new prompts aren't revocations.
+    replace_literal(screen, '        val bridge = remember { ConfigPageBridge(scope) }', '''        val bridge = remember { ConfigPageBridge(scope) }
+        DisposableEffect(bridge) {
+            onDispose { bridge.closeNetworkSockets() }
+        }
+        LaunchedEffect(webViewUuid, bridge) {
+            val id = webViewUuid ?: return@LaunchedEffect
+            coredevices.pebble.config.configPageNetworkRevocations(libPebble.appPermissionStatuses(id)).collect {
+                bridge.closeNetworkSockets()
+                runCatching { state.nativeWebView }.getOrNull()?.let { closeConfigPageNetwork(it) }
+                coreNav.goBack()
+            }
+        }''', expect=1)
+    replace_literal(screen, 'internal expect suspend fun persistLocalStorage(webView: NativeWebView)',
+                    'internal expect suspend fun persistLocalStorage(webView: NativeWebView)\n'
+                    'internal expect fun closeConfigPageNetwork(webView: NativeWebView)', expect=1)
+    replace_literal(screen, '/** [domains] each cover their subdomains; null leaves the page unrestricted. */',
+                    '/** [domains] bound redirects; native requests still check permissions when null. */', expect=1)
+    replace_literal(screen, '        // Fixed when the page opens: a domain approved later applies from the next visit.',
+                    '        // Redirect policy is fixed for this visit; losing a network grant closes the page.', expect=1)
+    replace_literal(android, 'private fun parseFileChooserResult(', '''internal actual fun closeConfigPageNetwork(webView: NativeWebView) {
+    webView.settings.javaScriptEnabled = false
+    webView.stopLoading()
+    webView.loadUrl("about:blank")
+    webView.destroy()
+}
+
+private fun parseFileChooserResult(''', expect=1)
+    replace_literal(ios, 'internal actual class ConfigPageNetwork(', '''internal actual fun closeConfigPageNetwork(webView: NativeWebView) {
+    webView.stopLoading()
+    webView.loadHTMLString("", null)
+}
+
+internal actual class ConfigPageNetwork(''', expect=1)
+
+    # Every PKJS HTTP call uses the checked native transport; no browser CORS dependency or opt-out.
+    replace_literal(runner, '''                if (libPebble.config.value.watchConfig.pkjsRequestsThroughApp) {
+                    // In a block, so evaluating it again can't redeclare the class.
+                    webView.evaluateJavascript(xhr.proxyJs() + "{" + XML_HTTP_REQUEST_JS + "}", null)
+                }''', '''                // In a block, so evaluating it again can't redeclare the class.
+                webView.evaluateJavascript(xhr.proxyJs() + "{" + XML_HTTP_REQUEST_JS + "}", null)
+                webView.evaluateJavascript(PKJS_FETCH_JS, null)''', expect=1)
+    replace_literal('libpebble3/src/androidMain/assets/webview_startup.html',
+                    'connect-src file: http: https: data: blob:', "connect-src 'none'", expect=1)
+    replace_literal(config, '    /** Android PKJS XMLHttpRequests go through the app, so their bytes are counted. */\n'
+                    '    val pkjsRequestsThroughApp: Boolean = true,\n', '', expect=1)
+    replace_literal(config, '            json.decodeFromString(string)', '''            val stored = json.parseToJsonElement(string)
+            val migrated = migratePkjsNetworkSetting(stored)
+            json.decodeFromJsonElement(LibPebbleConfig.serializer(), migrated).also {
+                if (migrated != stored) saveToStorage(it)
+            }''', expect=1)
+    edit('pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt',
+         r'(?s)                basicSettingsToggleItem\(\n                    title = "PKJS requests through app instead of Webview",.*?\n                \),\n',
+         '', expect=1)
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -4511,6 +4646,7 @@ def apply(extra_abis: list[str]) -> None:
     fit_delegate_call()
     harden_orb_release()
     harden_config_pages_and_archives()
+    fix_live_watchapp_network()
     fix_recovery_pebblekit_and_release_checks()
 
     if extra_abis:

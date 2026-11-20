@@ -101,6 +101,13 @@ published SHA-256 too.
 
 ## Network and privacy
 
+Watchapps' XHR and `fetch()` requests always go through Orb's permission checks
+and redirect checks. The debug toggle for sending PKJS requests through the
+WebView has been removed; saved choices are migrated automatically. Settings
+pages use the same live checks for WebSockets and close when a network permission
+is revoked, stopping the page's active connections. Reopen settings after changing
+its permissions.
+
 Orb itself contacts only these services:
 
 - **Rebble:** sign-in configuration (`boot.rebble.io`), the Rebble app store
@@ -217,6 +224,9 @@ and stops if the upstream files no longer match the expected versions.
 `tools/check_apk.py` checks the APK for code Orb must not ship. It also checks that
 the manifest keeps Orb's backup rules and HTTPS-only setting, with no debug
 components. It reads the manifest with `aapt2` from the Android SDK.
+
+Run the Python checks with `for t in tools/test_*.py; do python3 "$t"; done`.
+The JavaScript transport tests require Node.js and use an in-memory transport.
 
 Orb removes the code that needs Google services or a Core account instead of
 stubbing it out, so nothing in the app only pretends to work. Speex, which Core
