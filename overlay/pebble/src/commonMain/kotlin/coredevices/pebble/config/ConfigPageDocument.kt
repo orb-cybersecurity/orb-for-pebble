@@ -15,8 +15,7 @@ internal fun configPageMayNavigateClose(
     expectedUrl: String,
     currentUrl: String?,
     mainFrame: Boolean,
-    hasGesture: Boolean,
     redirect: Boolean,
     hasState: Boolean,
-): Boolean = mainFrame && (hasState || (!redirect && !hasGesture &&
+): Boolean = mainFrame && (hasState || (!redirect &&
     configPageMayComplete(expectedUrl, currentUrl, true, null) { false }))

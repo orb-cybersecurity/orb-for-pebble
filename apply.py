@@ -4645,6 +4645,7 @@ def apply(extra_abis: list[str]) -> None:
     fix_live_watchapp_network()
     fix_recovery_pebblekit_and_release_checks()
     fix_final_release_findings()
+    fix_runtime_release_findings()
 
     if extra_abis:
         edit(
@@ -4927,7 +4928,7 @@ def fix_final_release_findings() -> None:
         """                    Column {
                         Text(text = source.url)
                         if (!coredevices.pebble.services.validSourceUrl(source.url)) {
-                            Text("This source uses http and is not loaded; edit it to use https")
+                            Text("This source uses http and is not loaded; delete it and add the https address")
                         }
                     }""",
     )
@@ -5011,7 +5012,7 @@ import io.rebble.libpebblecommon.disk.readStringBounded
 import io.rebble.libpebblecommon.disk.MAX_PKJS_BYTES
 import co.touchlab.kermit.Logger""",
     )
-    replace_literal('libpebble3/src/androidMain/assets/webview_startup.html', 'content="script-src file: http: https:', 'content="default-src \'none\'; img-src file:///android_asset/; script-src file:///android_asset/')
+    replace_literal('libpebble3/src/androidMain/assets/webview_startup.html', 'content="script-src file: http: https:', 'content="default-src \'none\'; img-src \'self\' file: data: blob:; script-src file:')
     replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/locker/Locker.kt', 'import kotlinx.io.readString', 'import io.rebble.libpebblecommon.disk.readStringBounded')
     replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/locker/Locker.kt', 'sanitizeJS(source.readString())', 'sanitizeJS(source.readStringBounded(io.rebble.libpebblecommon.disk.MAX_PKJS_BYTES))')
     replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/JsRunner.kt', '${verdict.reason}', 'host=${io.rebble.libpebblecommon.util.safeLogHost(url)} refused')
@@ -5032,11 +5033,23 @@ import co.touchlab.kermit.Logger""",
     )
     replace_literal('pebble/src/androidMain/kotlin/coredevices/pebble/permissions/PermissionRequestNotifier.android.kt', '            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,', '            PendingIntent.FLAG_IMMUTABLE,')
     replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/LibPebbleNotification.kt',
+        '    val previousUuids: List<Uuid>,',
+        """    val previousUuids: List<Uuid>,
+    /** Previous items still sync as read, but permission actions must use their own snapshot. */
+    val canUsePreviousActions: Boolean = true,""",
+    )
+    replace_literal(
         'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationHandler.kt',
-        '    private fun findPreviousUuids(sbn: StatusBarNotification): List<Uuid> {',
-        """    private fun findPreviousUuids(sbn: StatusBarNotification): List<Uuid> {
-        // A watch action must refer to the permission snapshot displayed with that UUID.
-        if (sbn.packageName == context.packageName && sbn.notification.channelId == "app_permission_requests") return emptyList()""",
+        '            itemId in it.previousUuids',
+        '            it.canUsePreviousActions && itemId in it.previousUuids',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationHandler.kt',
+        'is NotificationResult.Extracted -> result.notification.copy(silent = silent)',
+        """is NotificationResult.Extracted -> result.notification.copy(silent = silent,
+                canUsePreviousActions = !(sbn.packageName == context.packageName &&
+                    sbn.notification.channelId == "app_permission_requests"))""",
     )
     replace_literal(
         'util/src/commonMain/kotlin/CommonRoutes.kt',
@@ -5142,6 +5155,7 @@ import co.touchlab.kermit.Logger""",
     (APP / 'util/src/commonMain/kotlin/BugReportButton.kt').unlink()
     (APP / 'util/src/commonMain/kotlin/coredevices/util/BugReportContext.kt').unlink()
     replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/PluginCapabilitiesSection.kt', 'plugins and Index can ask it to do them', 'plugins can ask it to do them')
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/PluginCapabilitiesSection.kt', 'Watchfaces, apps, other ', 'Watchfaces, apps and other ')
     remove_kotlin_block('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/Scanning.kt', r"override fun addQemuWatch\(")
     remove_kotlin_block('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/FakeLibPebble.kt', r"override fun addQemuWatch\(")
     remove_kotlin_block('libpebble3/src/androidHostTest/kotlin/io/rebble/libpebblecommon/connection/WatchManagerTest.kt', r"override fun addQemuWatch\(")
@@ -5465,7 +5479,7 @@ import android.database.Cursor""",
                         val document = configStorage[view]?.second ?: return true
                         if (!coredevices.pebble.config.configPageMayNavigateClose(
                             document.expectedUrl, view?.url, request.isForMainFrame,
-                            request.hasGesture(), request.isRedirect, callback.state != null,
+                            request.isRedirect, callback.state != null,
                         )) return true
                     }
                     return super.shouldOverrideUrlLoading(view, request)
@@ -5476,7 +5490,7 @@ import android.database.Cursor""",
         'pebble/src/commonMain/kotlin/coredevices/pebble/services/HybridTranscription.kt',
         '    private val audioFrameDecoder: AudioFrameDecoder,',
         """    private val audioFrameDecoder: AudioFrameDecoder,
-    private val permissionRequester: coredevices.util.PermissionRequester,
+    private val platform: coredevices.util.transcription.PlatformSpeechRecognizer,
     private val appContext: io.rebble.libpebblecommon.connection.AppContext,""",
     )
     replace_literal(
@@ -5488,7 +5502,7 @@ import android.database.Cursor""",
 
     override suspend fun canServeSession(): Boolean {
         if (coreConfigFlow.value.sttConfig.mode == coredevices.util.models.CactusSTTMode.PlatformOnly &&
-            !permissionRequester.hasPermission(coredevices.util.Permission.SpeechRecognizer) && !microphoneNoticeShown) {
+            platform.isAvailable() && !hasDictationPermission(appContext) && !microphoneNoticeShown) {
             microphoneNoticeShown = true
             notifyDictationPermissionNeeded(appContext)
         }
@@ -5517,7 +5531,12 @@ import android.database.Cursor""",
         if (intent.getBooleanExtra(coredevices.pebble.services.REQUEST_DICTATION_PERMISSION, false)) {
             lifecycleScope.launch {
                 val requester: coredevices.util.PermissionRequester by inject()
-                requester.requestPermission(coredevices.util.Permission.SpeechRecognizer, PlatformUiContext(this@MainActivity))
+                val recognizer: coredevices.util.transcription.PlatformSpeechRecognizer by inject()
+                if (recognizer.isAvailable()) {
+                    val ui = PlatformUiContext(this@MainActivity)
+                    if (requester.requestPermission(coredevices.util.Permission.SpeechRecognizer, ui) ==
+                        coredevices.util.PermissionResult.RejectedForever) requester.openPermissionsScreen(ui)
+                }
             }
         }""",
     )
@@ -5593,6 +5612,132 @@ import coredevices.pebble.services.isRebbleFeed""",
     replace_literal('libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt', 'import java.io.File\n', '')
     replace_literal('libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt', 'import io.rebble.libpebblecommon.util.safeLogHost\n', '')
     replace_literal('pebble/src/iosMain/kotlin/coredevices/pebble/ui/WatchFirmwareSideload.ios.kt', 'import platform.Foundation.NSDocumentDirectory\n', '')
+
+
+def fix_runtime_release_findings() -> None:
+    replace_literal('libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt',
+        'if (!pkjsAssetUrlAllowed(request?.url?.toString()))',
+        'if (!pkjsResourceUrlAllowed(request?.url?.toString()))')
+    replace_literal('composeApp/build.gradle.kts',
+        '            implementation(libs.ktor.client.okhttp)\n        }\n        iosMain.dependencies',
+        '            implementation(libs.ktor.client.okhttp)\n            implementation("org.mockito:mockito-core:5.24.0")\n            implementation(libs.coroutines.test)\n            implementation(libs.compass.geocoder)\n        }\n        iosMain.dependencies')
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt',
+        'storeSourceDao.getAllEnabledSources().map { it.id }',
+        'storeSourceDao.getAllEnabledSources().filter { coredevices.pebble.services.validSourceUrl(it.url) }.map { it.id }',
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/permissions/PermissionRequestNotifier.android.kt',
+        '''        context.getSystemService(NotificationManager::class.java)
+            .cancel(PermissionRequestNotifier.keyOf(appUuid))
+''',
+        '''        // The notifier removes answered requests. An old snapshot must not cancel a newer one.
+''',
+    )
+    settings = 'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt'
+    replace_literal(settings,
+        '        if (accepts(origin, main)) message.data?.let(bridge::onCall)',
+        '''        if (accepts(origin, main) && message.type == androidx.webkit.WebMessageCompat.TYPE_STRING)
+            message.data?.let(bridge::onCall)''')
+    replace_literal(settings,
+        '''        if (accepts(origin, main)) message.data?.let {
+            try { localStorageInterface.saveState(it) }
+            catch (_: Exception) { Logger.withTag("ConfigStorage").w("Malformed storage snapshot ignored") }
+        }''',
+        '''        if (accepts(origin, main)) {
+            try { message.data?.let(localStorageInterface::saveState) }
+            catch (_: Exception) { Logger.withTag("ConfigStorage").w("Malformed storage snapshot ignored") }
+        }''')
+    replace_literal('libpebble3/src/androidMain/assets/webview_startup.html',
+        '    <!-- No frames, workers or inline scripts: each would be a fresh realm with ungated network APIs. -->',
+        '''    <!-- Chromium rejects file:///android_asset/ as a CSP source (empty host), and 'self'
+         is unreliable for opaque file origins. Use the file: scheme for bundled scripts;
+         shouldInterceptRequest restricts it to android_asset and blocks direct HTTP(S).
+         Keep Core's eval and hashed onload support; images may also decode checked downloads
+         through local data/blob URLs. Frames/workers stay blocked; XHR/fetch use the proxy. -->''')
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/WatchManager.kt',
+        '            knownWatchDao.knownWatches().associate {',
+        '''            // QEMU transport was removed; discard persisted sockets before any connection state exists.
+            knownWatchDao.knownWatches().filter { watch ->
+                if (watch.transportType == io.rebble.libpebblecommon.database.entity.TransportType.Socket) {
+                    knownWatchDao.remove(watch.transportIdentifier)
+                    false
+                } else true
+            }.associate {''')
+    replace_literal('libpebble3/src/androidHostTest/kotlin/io/rebble/libpebblecommon/connection/WatchManagerTest.kt',
+        'import kotlinx.coroutines.test.runTest', 'import kotlinx.coroutines.test.runCurrent\nimport kotlinx.coroutines.test.runTest')
+    replace_literal('libpebble3/src/androidHostTest/kotlin/io/rebble/libpebblecommon/connection/WatchManagerTest.kt',
+        '    private fun seededWatch(lastConnected: MillisecondInstant?) = KnownWatchItem(',
+        """    @Test
+    fun persistedSocketWatchesAreForgottenBeforeConnectionStateLoads() = runTest(timeout = 5.seconds) {
+        seededKnownWatches = listOf(true, false).map { connect ->
+            seededWatch(null).copy(transportType = TransportType.Socket,
+                transportIdentifier = "qemu-$connect", connectGoal = connect)
+        }
+        val manager = create(backgroundScope)
+        assertEquals(setOf("qemu-true", "qemu-false"), removedKnownWatches.toSet())
+        assertEquals(emptyList<PebbleDevice>(), manager.watches.value)
+        manager.init()
+        runCurrent()
+        assertEquals(0, totalConnections)
+    }
+
+    private fun seededWatch(lastConnected: MillisecondInstant?) = KnownWatchItem(""")
+    image = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt'
+    replace_literal(image,
+        '        stream.use { BitmapFactory.decodeStream(it, null, bounds) }',
+        '''        io.rebble.libpebblecommon.imaging.EncodedImageInputStream(stream).use { bounded ->
+            BitmapFactory.decodeStream(bounded, null, bounds)
+            // Bounds decoding stops at the header; count the rest on the same stream.
+            val buffer = ByteArray(8192)
+            while (bounded.read(buffer) != -1) { }
+        }''')
+    replace_literal(image,
+        '    return NotificationImage(NotificationImageSource.FromUri(this), bounds.outWidth, bounds.outHeight)',
+        '''    val orientation = try {
+        context.contentResolver.openInputStream(this)?.use {
+            android.media.ExifInterface(it).getAttributeInt(
+                android.media.ExifInterface.TAG_ORIENTATION,
+                android.media.ExifInterface.ORIENTATION_NORMAL)
+        } ?: android.media.ExifInterface.ORIENTATION_NORMAL
+    } catch (_: Exception) { return null }
+    // EXIF 5-8 transpose the stored axes; reserve the band for the upright image.
+    val swapped = orientation in 5..8
+    return NotificationImage(NotificationImageSource.FromUri(this),
+        if (swapped) bounds.outHeight else bounds.outWidth,
+        if (swapped) bounds.outWidth else bounds.outHeight)''')
+    provider = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleKitProvider.kt'
+    replace_literal(provider, '      locker = getKoin().get<LibPebble>()',
+        '''      locker = getKoin().get<LibPebble>()
+      // Keep the serial-free protocol notification. Never emit activeApp/<serial> URIs.
+      getConnectedWatches().distinctUntilChanged().onEach {
+         context?.let { ctx -> ctx.contentResolver.notifyChange(ConnectedWatch.getContentUri(ctx.packageName), null) }
+      }.launchIn(getKoin().get<io.rebble.libpebblecommon.di.LibPebbleCoroutineScope>())''')
+    replace_literal(provider, 'import kotlinx.coroutines.flow.Flow',
+        '''import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.Flow''')
+    # Re-resolve the sender on each retry after revocation, retaining the current event for remaining companions.
+    delivery = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/DatalogDelivery.kt'
+    replace_literal(delivery, '        val sender = resolveSenderSafely(key.uuid)', '        var sender = resolveSenderSafely(key.uuid)')
+    replace_literal(delivery, '        try {\n            while (true) {',
+        """        suspend fun senderForAttempt(): DatalogSender? {
+            if (sender?.isAuthorized() != true) {
+                sender?.close()
+                sender = null
+                sender = resolveSenderSafely(key.uuid)
+            }
+            return sender?.takeIf { it.isAuthorized() }
+        }
+        try {
+            while (true) {""")
+    replace_literal(delivery, 'deliverWithRetry(sender) { sender.', 'deliverWithRetry(::senderForAttempt) { it.', expect=2)
+    replace_literal(delivery, '            sender.close()', '            sender?.close()')
+    replace_literal(delivery, '    private suspend fun deliverWithRetry(sender: DatalogSender, send: suspend () -> Boolean): Boolean {',
+        '''    private suspend fun deliverWithRetry(senderForAttempt: suspend () -> DatalogSender?, send: suspend (DatalogSender) -> Boolean): Boolean {''')
+    replace_literal(delivery, '            if (!sender.isAuthorized()) return false', '            val sender = senderForAttempt() ?: return false')
+    replace_literal(delivery, 'withTimeoutOrNull(sendTimeout) { send() }', 'withTimeoutOrNull(sendTimeout) { send(sender) }')
 
 
 def fit_delegate_call() -> None:

@@ -8,3 +8,8 @@ internal fun pkjsAssetUrlAllowed(raw: String?): Boolean = runCatching {
     url.protocol.name == "file" && url.host.isEmpty() && url.encodedPath.startsWith("/android_asset/") &&
         url.encodedPath.split('/').none { it == ".." || '%' in it || '\\' in it }
 }.getOrDefault(false)
+
+/** Some WebViews also intercept local image schemes. CSP keeps these out of script-src. */
+internal fun pkjsResourceUrlAllowed(raw: String?): Boolean =
+    raw?.startsWith("data:", ignoreCase = true) == true ||
+        raw?.startsWith("blob:", ignoreCase = true) == true || pkjsAssetUrlAllowed(raw)

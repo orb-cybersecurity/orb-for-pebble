@@ -10,10 +10,12 @@ import kotlin.test.assertTrue
 
 class SourceUrlTest {
     @Test fun sourceDialogPolicyRejectsCleartextAndInvalidFeedUrls() {
-        assertTrue(validSourceUrl("https://example.org/api"))
+        for (url in listOf("https://example.org/api", "https://example.org/api?key=value",
+            "https://example.org/api#fragment", "https://user:password@example.org/api")) {
+            assertTrue(validSourceUrl(url), url)
+        }
         for (url in listOf("http://example.org/api", "HTTP://example.org/api", "file:///api",
-            "https://example.org/api?key=value", "https://example.org/api#fragment",
-            "https://user:password@example.org/api", "not a url")) {
+            "https:///", "not a url")) {
             assertFalse(validSourceUrl(url), url)
         }
     }

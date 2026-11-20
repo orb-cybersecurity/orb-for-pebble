@@ -51,11 +51,35 @@ class SourcePreservationTest(unittest.TestCase):
 
 
 class BuildCommitTest(unittest.TestCase):
+    def test_post_build_guard_rejects_changed_head_and_dirty_sources(self):
+        script = (ROOT / 'tools/release_build.sh').read_text()
+        guards = script[script.index('# Verify the source identity again'):script.index('# All checks passed:')]
+        self.assertLess(script.index(guards), script.index('cp "$APK"'))
+        for head, dirty, ignored, expected in [('start', '', '', 0), ('changed', '', '', 1),
+                ('start', ' M overlay/source', '', 1), ('start', '', 'overlay/ignored', 1)]:
+            with self.subTest(head=head, dirty=dirty, ignored=ignored):
+                harness = r'''die() { echo "$*" >&2; exit 1; }
+git() {
+  case "$1" in
+    rev-parse) printf '%s' "$TEST_HEAD" ;;
+    status) printf '%s' "$TEST_DIRTY" ;;
+    ls-files) printf '%s' "$TEST_IGNORED" ;;
+    *) exit 99 ;;
+  esac
+}
+'''
+                result = subprocess.run(['bash', '-c', harness + guards],
+                    env={**os.environ, 'BUILD_COMMIT': 'start', 'TEST_HEAD': head,
+                         'TEST_DIRTY': dirty, 'TEST_IGNORED': ignored}, capture_output=True, text=True)
+                self.assertEqual(expected, result.returncode, result.stderr)
+
     def test_missing_or_different_build_commit_is_refused_before_network(self):
         script = (ROOT / 'tools/github_release.sh').read_text()
         guard = next(line for line in script.splitlines() if 'field commit' in line)
         self.assertLess(script.index(guard), script.index('gh auth status'))
-        self.assertIn('echo "commit: $(git rev-parse HEAD)"', (ROOT / 'tools/release_build.sh').read_text())
+        build = (ROOT / 'tools/release_build.sh').read_text()
+        self.assertIn('echo "commit: $BUILD_COMMIT"', build)
+        self.assertLess(build.index('BUILD_COMMIT=$(git rev-parse HEAD)'), build.index('python3 apply.py --reset'))
         for built, expected in [('', 1), ('old', 1), ('tag-commit', 0)]:
             with self.subTest(built=built):
                 harness = 'field() { printf "%s" "$BUILT"; }; die() { echo "$*" >&2; exit 1; }; COMMIT=tag-commit; APK=test.apk\n'

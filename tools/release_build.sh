@@ -54,6 +54,7 @@ cd "$ROOT"
 [ -z "$(git ls-files --others -- overlay)" ] || die "untracked or ignored files in overlay/"
 VERSION=$(python3 -c 'import apply; print(apply.read_version()[0])')
 [ "$(git describe --exact-match --tags HEAD 2>/dev/null)" = "$VERSION" ] || die "HEAD is not tagged $VERSION"
+BUILD_COMMIT=$(git rev-parse HEAD)
 rm -f "dist/orb-$VERSION.apk" "dist/orb-$VERSION.txt"
 python3 apply.py --reset >/dev/null
 
@@ -85,13 +86,18 @@ grep -q "native-code: 'arm64-v8a' 'armeabi-v7a'" <<<"$BADGING" || die "expected 
 grep -q "application-debuggable" <<<"$BADGING" && die "debuggable APK"
 python3 tools/check_apk.py "$APK" || die "the APK contains code Orb must not ship"
 
+# Verify the source identity again after the build, before publishing local artifacts.
+[ "$(git rev-parse HEAD)" = "$BUILD_COMMIT" ] || die "HEAD changed during the build"
+[ -z "$(git status --porcelain --untracked-files=all)" ] || die "working tree changed during the build"
+[ -z "$(git ls-files --others -- overlay)" ] || die "untracked or ignored files in overlay/"
+
 # All checks passed: only now does it get its release name.
 cp "$APK" "dist/.orb-$VERSION.apk.part"
 mv "dist/.orb-$VERSION.apk.part" "dist/orb-$VERSION.apk"
 APK="dist/orb-$VERSION.apk"
 {
   echo "version: $VERSION"
-  echo "commit: $(git rev-parse HEAD)"
+  echo "commit: $BUILD_COMMIT"
   echo "package: $PKG"
   echo "file: $(basename "$APK")"
   echo "size: $(stat -c %s "$APK") bytes"

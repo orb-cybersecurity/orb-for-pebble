@@ -15,12 +15,12 @@ internal fun boundedImage(context: Context, uri: Uri): ImageSnapshot? {
             while (true) {
                 val count = source.read(buffer)
                 if (count < 0) break
-                if (sink.size() + count > 8 * 1024 * 1024) return null
+                if (sink.size() + count > MAX_ENCODED_IMAGE_BYTES) return null
                 sink.write(buffer, 0, count)
             }
             sink.toByteArray()
         } ?: return null
-        if (bytes.size > 8 * 1024 * 1024) return null
+        if (bytes.size > MAX_ENCODED_IMAGE_BYTES) return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth !in 1..8192 || bounds.outHeight !in 1..8192 ||

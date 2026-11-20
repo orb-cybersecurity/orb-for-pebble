@@ -10,6 +10,11 @@ import coredevices.util.R
 const val REQUEST_DICTATION_PERMISSION = "orb_request_dictation_permission"
 private const val CHANNEL = "dictation_permission"
 
+// Read at session time; PermissionRequester depends on LibPebble during startup.
+internal actual fun hasDictationPermission(appContext: AppContext): Boolean =
+    androidx.core.content.ContextCompat.checkSelfPermission(appContext.context,
+        android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
 internal actual fun notifyDictationPermissionNeeded(appContext: AppContext) {
     val context = appContext.context
     val manager = context.getSystemService(NotificationManager::class.java)

@@ -5,7 +5,5 @@ import io.ktor.http.parseUrl
 
 internal fun validSourceUrl(value: String): Boolean {
     val url = parseUrl(value) ?: return false
-    return url.protocolOrNull == URLProtocol.HTTPS && url.host.isNotBlank() &&
-        url.user.isNullOrEmpty() && url.password.isNullOrEmpty() &&
-        url.encodedQuery.isEmpty() && url.fragment.isEmpty()
+    return url.protocolOrNull == URLProtocol.HTTPS && url.host.isNotBlank()
 }

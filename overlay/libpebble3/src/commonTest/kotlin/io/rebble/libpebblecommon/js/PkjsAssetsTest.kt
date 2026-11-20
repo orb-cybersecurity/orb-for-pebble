@@ -5,6 +5,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PkjsAssetsTest {
+    @Test fun checkedDownloadImagesCanDecodeLocallyButNetworkResourcesStayBlocked() {
+        for (url in listOf("data:image/png;base64,AAAA", "blob:null/local-image"))
+            assertTrue(pkjsResourceUrlAllowed(url))
+        for (url in listOf("https://example.org/image.png", "http://example.org/image.png",
+            "file:///private/token", null)) assertFalse(pkjsResourceUrlAllowed(url))
+    }
+
     @Test fun onlyOwnBundledAssetsReachTheBrowserLoader() {
         for (file in listOf("webview_startup.html", "startup.js", "realm_guard.js"))
             assertTrue(pkjsAssetUrlAllowed("file:///android_asset/$file"))

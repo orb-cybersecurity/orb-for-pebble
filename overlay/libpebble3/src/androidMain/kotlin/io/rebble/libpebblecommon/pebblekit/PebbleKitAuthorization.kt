@@ -29,8 +29,11 @@ internal object PebbleKitAuthorization : LibPebbleKoinComponent {
     suspend fun associated(callers: Collection<String>): Boolean {
         if (callers.isEmpty()) return false
         val locker = getKoin().getOrNull<Locker>() ?: return false
-        return locker.getAllLockerUuids().first().any { uuid ->
-            granted(callers, uuid)
+        // A query is a use: record an undecided companion's ask without waiting or exposing data.
+        var granted = false
+        for (uuid in locker.getAllLockerUuids().first()) {
+            if (allowed(callers, uuid)) granted = true
         }
+        return granted
     }
 }

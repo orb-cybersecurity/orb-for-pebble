@@ -18,15 +18,16 @@ class ConfigPageDocumentTest {
         assertTrue(configPageMayRestoreStorage(configPageOrigin(document.expectedUrl), "https://final.example/save", true))
         assertFalse(configPageMayComplete(document.expectedUrl, "https://initial.example/settings", true, null) { false })
     }
-    @Test fun legacyNavigationRejectsSubframesGesturesRedirectsAndForeignTopDocuments() {
+    @Test fun legacySaveAllowsTopFrameNavigationButRejectsRedirectsAndForeignDocuments() {
         val page = "https://final.example/settings"
-        assertTrue(configPageMayNavigateClose(page, page, true, false, false, false))
-        assertFalse(configPageMayNavigateClose(page, page, false, false, false, false))
-        assertFalse(configPageMayNavigateClose(page, page, true, true, false, false))
-        assertFalse(configPageMayNavigateClose(page, page, true, false, true, false))
-        assertFalse(configPageMayNavigateClose(page, "https://iframe.example", true, false, false, false))
-        assertTrue(configPageMayNavigateClose(page, "https://login.example", true, true, false, true))
-        assertFalse(configPageMayNavigateClose(page, page, false, true, false, true))
+        assertTrue(configPageMayNavigateClose(page, page, true, false, false))
+        assertFalse(configPageMayNavigateClose(page, page, false, false, false))
+        assertFalse(configPageMayNavigateClose(page, page, true, true, false))
+        assertFalse(configPageMayNavigateClose(page, "https://iframe.example", true, false, false))
+        assertTrue(configPageMayNavigateClose(page, "https://login.example", true, false, true))
+        assertFalse(configPageMayNavigateClose(page, page, false, false, true))
+        val data = "data:text/html,Save"
+        assertTrue(configPageMayNavigateClose(data, data, true, false, false))
         assertTrue("frame-src 'none'" in configPageCsp(null, page))
     }
 }
