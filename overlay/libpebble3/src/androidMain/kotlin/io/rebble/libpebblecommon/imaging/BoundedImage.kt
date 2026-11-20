@@ -6,10 +6,11 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 
 internal data class ImageSnapshot(val bytes: ByteArray, val bitmap: Bitmap, val width: Int, val height: Int)
-internal fun boundedImage(context: Context, uri: Uri): ImageSnapshot? {
+internal fun boundedImage(context: Context, uri: Uri, resources: ImageReadResources? = null): ImageSnapshot? {
     if (uri.scheme != "content" && uri.scheme != "android.resource") return null
     return try {
         val bytes = context.contentResolver.openInputStream(uri)?.use { source ->
+            resources?.track(source)
             val sink = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(8192)
             while (true) {

@@ -3964,7 +3964,7 @@ def harden_config_pages_and_archives() -> None:
     # End return_to with the separator used by pages that append encodeURIComponent(settings).
     replace_literal(pkjs, '"pebblejs://close?orb_state=$state"', '"pebblejs://close?orb_state=$state#"', expect=1)
     replace_literal(pkjs, '    fun closeExternalConfig(state: String?, data: String): Boolean {',
-                    '    fun consumeConfigState(state: String): Boolean = externalConfig.consume(state)\n\n'
+                    '    fun consumeConfigState(state: String): Boolean = externalConfig.consume(state, external = false)\n\n'
                     '    fun closeExternalConfig(state: String?, data: String): Boolean {', expect=1)
     replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageSession.kt',
                     '    /** Whatever the page put in its close URL. */',
@@ -4208,7 +4208,7 @@ internal actual class ConfigPageNetwork(''', expect=1)
                 webView.evaluateJavascript(xhr.proxyJs() + "{" + XML_HTTP_REQUEST_JS + "}", null)
                 webView.evaluateJavascript(PKJS_FETCH_JS, null)''', expect=1)
     replace_literal('libpebble3/src/androidMain/assets/webview_startup.html',
-                    'connect-src file: http: https: data: blob:', "connect-src 'none'", expect=1)
+                    'connect-src file: http: https: data: blob:', 'connect-src data: blob:', expect=1)
     replace_literal(config, '    /** Android PKJS XMLHttpRequests go through the app, so their bytes are counted. */\n'
                     '    val pkjsRequestsThroughApp: Boolean = true,\n', '', expect=1)
     replace_literal(config, '            json.decodeFromString(string)', '''            val stored = json.parseToJsonElement(string)
@@ -4646,6 +4646,7 @@ def apply(extra_abis: list[str]) -> None:
     fix_recovery_pebblekit_and_release_checks()
     fix_final_release_findings()
     fix_runtime_release_findings()
+    fix_round6_findings()
 
     if extra_abis:
         edit(
@@ -4819,7 +4820,7 @@ def fix_recovery_pebblekit_and_release_checks() -> None:
     replace_literal(source_ui, 'label = { Text("Source URL") }', 'label = { Text("Source URL (HTTPS)") }')
     deep = 'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt'
     replace_literal(deep, '''            if (name.isBlank() || url.isBlank()) return null''',
-                    '''            if (name.isBlank() || !coredevices.pebble.services.validSourceUrl(url)) return null''')
+                    '''            if (name.isBlank() || !coredevices.pebble.services.validNewSourceUrl(url)) return null''')
     dao = 'util/src/commonMain/kotlin/coredevices/database/AppstoreSource.kt'
     sources = 'pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreSources.kt'
 
@@ -4884,7 +4885,7 @@ def fix_recovery_pebblekit_and_release_checks() -> None:
             parsedUrl.protocolOrNull == URLProtocol.HTTPS &&
             parsedUrl.encodedQuery.isEmpty() &&
             parsedUrl.fragment.isEmpty() &&
-            normalizedUrl !in existingUrls''', '''    val urlValid = coredevices.pebble.services.validSourceUrl(normalizedUrl) &&
+            normalizedUrl !in existingUrls''', '''    val urlValid = coredevices.pebble.services.validNewSourceUrl(normalizedUrl) &&
             normalizedUrl !in existingUrls''')
     # Staged catalog language downloads use the same owned-temp-file lifecycle as URL installs.
     repository = 'pebble/src/commonMain/kotlin/coredevices/pebble/services/LanguagePackRepository.kt'
@@ -5738,6 +5739,98 @@ import kotlinx.coroutines.flow.Flow''')
         '''    private suspend fun deliverWithRetry(senderForAttempt: suspend () -> DatalogSender?, send: suspend (DatalogSender) -> Boolean): Boolean {''')
     replace_literal(delivery, '            if (!sender.isAuthorized()) return false', '            val sender = senderForAttempt() ?: return false')
     replace_literal(delivery, 'withTimeoutOrNull(sendTimeout) { send() }', 'withTimeoutOrNull(sendTimeout) { send(sender) }')
+
+
+def fix_round6_findings() -> None:
+    # Name both arguments so the constructor scanner also understands the trailing callback.
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt',
+        'RealBatteryChargedNotifier(get()) { postWatchFullyChargedNotification(appContext, it) }',
+        'RealBatteryChargedNotifier(coreConfigFlow = get(), notify = { postWatchFullyChargedNotification(appContext, it) })')
+    runner = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt'
+    replace_literal(runner, '    private val context = appContext.context',
+        '    private val appScriptRequest = AppScriptRequest(jsPath.toString())\n    private val context = appContext.context')
+    replace_literal(runner, '    override suspend fun loadAppJs(jsUrl: String) {',
+        '''    override suspend fun loadAppJs(jsUrl: String) {
+        if (!appScriptRequest.accept(jsUrl)) {
+            logger.w { "Refused PKJS script request" }
+            return
+        }''')
+    replace_literal(runner, '''            if (jsUrl.isBlank() || !jsUrl.endsWith(".js")) {
+                logger.e { "loadUrl passed to loadAppJs empty or invalid" }
+                return
+            }
+
+''', '')
+    replace_literal(runner, 'kotlinx.io.files.Path(jsUrl)', 'jsPath')
+
+    source_ui = 'pebble/src/commonMain/kotlin/coredevices/pebble/ui/AppstoreSettingsScreen.kt'
+    replace_literal(source_ui, '    private val pebbleWebServices: PebbleWebServices,',
+        '''    private val pebbleWebServices: PebbleWebServices,
+    private val firestoreLocker: coredevices.pebble.account.FirestoreLocker,''')
+    replace_literal(source_ui, '            sourceDao.insertSource(source)',
+        '''            if (!coredevices.pebble.services.validNewSourceUrl(source.url)) return@launch
+            sourceDao.insertSource(source)
+            firestoreLocker.relinkHttpSource(source.url)''')
+
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt',
+        '        override suspend fun removeApp(uuid: Uuid): Boolean = true',
+        '        override suspend fun removeApp(uuid: Uuid): Boolean = true\n'
+        '        override suspend fun relinkHttpSource(httpsUrl: String) {}')
+
+    receiver = 'pebble/src/androidMain/kotlin/coredevices/pebble/permissions/PermissionRequestNotifier.android.kt'
+    replace_literal(receiver, 'import kotlinx.coroutines.GlobalScope',
+        'import io.rebble.libpebblecommon.connection.LibPebble\nimport kotlinx.coroutines.flow.first\nimport kotlinx.coroutines.GlobalScope')
+    replace_literal(receiver, '                answerPermissionRequests(get(), appUuid, permissions, granted)',
+        '''                val libPebble = get<LibPebble>()
+                answerPermissionRequests(libPebble, appUuid, permissions, granted)
+                // Also clear an orphan from an earlier process, but keep any newer waiting keys.
+                if (libPebble.activePermissionRequests().first().none { it.appUuid == appUuid }) {
+                    context.getSystemService(NotificationManager::class.java)
+                        .cancel(PermissionRequestNotifier.keyOf(appUuid))
+                }''')
+
+    provider = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleKitProvider.kt'
+    replace_literal(provider, 'import kotlinx.coroutines.flow.Flow',
+        '''import io.rebble.libpebblecommon.permissions.AppPermissions
+import io.rebble.libpebblecommon.permissions.permissionOf
+import io.rebble.libpebblecommon.plugin.PluginPermissions
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.Flow''')
+    replace_literal(provider, '''      getConnectedWatches().distinctUntilChanged().onEach {''',
+        '''      val scope = getKoin().get<io.rebble.libpebblecommon.di.LibPebbleCoroutineScope>()
+      val grants = getKoin().get<AppPermissions>().permissionDecisions().map { rows ->
+         rows.filter { permissionOf(it.permission) == PluginPermissions.PEBBLEKIT_2 && it.granted == true }
+            .map { it.appUuid to it.permission }.toSet()
+      }.distinctUntilChanged()
+      combine(getConnectedWatches().distinctUntilChanged(), grants) { watches, allowed -> watches to allowed }
+         .distinctUntilChanged().onEach {''')
+    replace_literal(provider, '''      }.launchIn(getKoin().get<io.rebble.libpebblecommon.di.LibPebbleCoroutineScope>())''',
+        '''      }.launchIn(scope)
+      watchManager.watches.flatMapLatest { watches ->
+         val connected = watches.filterIsInstance<ConnectedPebbleDevice>()
+         if (connected.isEmpty()) flowOf(emptyList()) else combine(connected.map { watch ->
+            watch.runningApp.map { watch.watchInfo.serial to it }
+         }) { it.toList() }
+      }.distinctUntilChanged().onEach {
+         // Android also delivers this parent URI to observers of activeApp/<serial>.
+         context?.let { ctx -> ctx.contentResolver.notifyChange(
+            Uri.parse("content://${ctx.packageName}.pebblekit/activeApp"), null) }
+      }.launchIn(scope)''')
+
+    image = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt'
+    replace_literal(image, 'fun StatusBarNotification.extractAttachment(', 'suspend fun StatusBarNotification.extractAttachment(')
+    replace_literal(image, 'private fun StatusBarNotification.bigPicture(', 'private suspend fun StatusBarNotification.bigPicture(')
+    # URI inspection belongs on IO and must have a deadline even for uncooperative providers.
+    edit(image, r'private fun Uri.asNotificationImage\(context: Context\): NotificationImage\? \{[\s\S]*\Z',
+        '''private suspend fun Uri.asNotificationImage(context: Context): NotificationImage? {
+    val dimensions = io.rebble.libpebblecommon.imaging.notificationImageDimensions(context, this) ?: return null
+    return NotificationImage(NotificationImageSource.FromUri(this), dimensions.first, dimensions.second)
+}
+''')
+    store = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImageStore.kt'
+    replace_literal(store, 'private fun NotificationImage.decode(', 'private suspend fun NotificationImage.decode(')
+    replace_literal(store, 'io.rebble.libpebblecommon.imaging.boundedImage(context, source.uri)',
+        'io.rebble.libpebblecommon.imaging.readImageWithTimeout { resources ->\n                io.rebble.libpebblecommon.imaging.boundedImage(context, source.uri, resources)\n            }')
 
 
 def fit_delegate_call() -> None:

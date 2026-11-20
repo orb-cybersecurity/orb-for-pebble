@@ -19,7 +19,13 @@ XHR_HOST = r"""
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 let next = 0, permitted = true, calls = [], aborts = 0, pending = new Map();
-globalThis.fetch = () => { throw Error('native fetch escaped'); };
+const browserFetch = globalThis.fetch;
+let localFetches = 0;
+globalThis.fetch = request => {
+  assert.match(request.url, /^(data|blob):/i, 'native fetch escaped');
+  localFetches++;
+  return browserFetch(request);
+};
 globalThis._XMLHTTPRequestManager = {
   getXHRInstanceID() { const id = ++next; pending.set(id, { headers: {} }); return id; },
   open(id, method, url) { Object.assign(pending.get(id), { method, url }); },
@@ -87,6 +93,20 @@ const missing = await fetch('https://api.example/missing');
 assert.equal(missing.status, 404); assert.equal(missing.ok, false);
 const head = await fetch('https://api.example/head', { method: 'HEAD' });
 assert.equal(await head.text(), '');
+""")
+
+    def test_local_fetch_uses_browser_bytes_without_native_network_transport(self):
+        self.fetch(r"""
+assert.equal(await (await fetch('DATA:text/plain,hello%20world')).text(), 'hello world');
+const bytes = new Uint8Array([0, 128, 255]);
+const url = URL.createObjectURL(new Blob([bytes]));
+assert.deepEqual([...new Uint8Array(await (await fetch(url)).arrayBuffer())], [...bytes]);
+URL.revokeObjectURL(url);
+assert.equal(localFetches, 2);
+assert.equal(calls.length, 0);
+await fetch('https://api.example/data');
+assert.equal(localFetches, 2);
+assert.equal(calls.length, 1);
 """)
 
     def test_revocation_rejects_fetch_and_xhr_uses_the_same_transport(self):

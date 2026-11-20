@@ -8,6 +8,7 @@ internal const val MAX_ENCODED_IMAGE_BYTES = 8 * 1024 * 1024
 /** Count every encoded byte, including the header consumed by bounds decoding. No image buffer. */
 internal class EncodedImageInputStream(private val source: InputStream) : InputStream() {
     private var count = 0
+    val totalBytes: Int get() = count
 
     override fun read(): Int {
         checkLimit()

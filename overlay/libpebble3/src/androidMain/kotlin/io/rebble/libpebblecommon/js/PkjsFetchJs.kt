@@ -4,6 +4,7 @@ package io.rebble.libpebblecommon.js
 internal const val PKJS_FETCH_JS = """
 (function (global) {
   'use strict';
+  var nativeFetch = global.fetch;
   var XHR = global.XMLHttpRequest;
   var Request = global.Request, Response = global.Response, Headers = global.Headers;
   var Promise = global.Promise, DOMException = global.DOMException;
@@ -13,6 +14,9 @@ internal const val PKJS_FETCH_JS = """
       return new Promise(function (resolve, reject) {
         var request;
         try { request = new Request(input, init); } catch (e) { reject(e); return; }
+        if (/^(data|blob):/i.test(request.url)) {
+          resolve(nativeFetch.call(global, request)); return;
+        }
         // The native manager follows redirects only after checking each destination.
         if (request.redirect !== 'follow') {
           reject(new TypeError('Only checked redirect following is supported')); return;

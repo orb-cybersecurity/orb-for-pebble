@@ -9,9 +9,9 @@ internal class ExternalConfigRequest(private val time: TimeSource = TimeSource.M
     private val pending = MutableStateFlow<Request?>(null)
     fun begin(): String = Uuid.random().toString().also { pending.value = Request(it, time.markNow()) }
     fun clear() { pending.value = null }
-    fun consume(state: String?): Boolean {
+    fun consume(state: String?, external: Boolean = true): Boolean {
         val request = pending.value ?: return false
-        if (request.started.elapsedNow().inWholeMinutes >= 10) { pending.compareAndSet(request, null); return false }
+        if (external && request.started.elapsedNow().inWholeMinutes >= 10) { pending.compareAndSet(request, null); return false }
         return state == request.state && pending.compareAndSet(request, null)
     }
 }

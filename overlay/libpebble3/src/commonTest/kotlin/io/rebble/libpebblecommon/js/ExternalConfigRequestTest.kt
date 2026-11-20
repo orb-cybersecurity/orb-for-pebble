@@ -6,6 +6,20 @@ import kotlin.test.assertTrue
 import kotlin.test.assertNotEquals
 
 class ExternalConfigRequestTest {
+    @Test fun inAppStateDoesNotExpireButRemainsSingleUseAndSessionBound() {
+        val time = kotlin.time.TestTimeSource()
+        val request = ExternalConfigRequest(time)
+        val state = request.begin()
+        time += kotlin.time.Duration.parse("30m")
+        assertTrue(request.consume(state, external = false))
+        assertFalse(request.consume(state, external = false))
+        val old = request.begin()
+        val next = request.begin()
+        assertFalse(request.consume(old, external = false))
+        request.clear()
+        assertFalse(request.consume(next, external = false))
+    }
+
     @Test fun oldCallbacksExpire() {
         val time = kotlin.time.TestTimeSource()
         val request = ExternalConfigRequest(time)

@@ -43,6 +43,7 @@ interface FirestoreLocker {
     suspend fun fetchLocker(forceRefresh: Boolean): LockerModelWrapper?
     suspend fun addApp(entry: CommonAppType.Store, timelineToken: String?): Boolean
     suspend fun removeApp(uuid: Uuid): Boolean
+    suspend fun relinkHttpSource(httpsUrl: String)
 }
 
 class LocalLocker(
@@ -126,6 +127,21 @@ class LocalLocker(
     override suspend fun removeApp(uuid: Uuid): Boolean {
         change { list -> list.filterNot { it.uuid == uuid } }
         return true
+    }
+
+    override suspend fun relinkHttpSource(httpsUrl: String) {
+        if (!httpsUrl.startsWith("https://", ignoreCase = true)) return
+        var changed = false
+        change { entries ->
+            entries.map { entry ->
+                if (entry.appstoreSource.startsWith("http://", ignoreCase = true) &&
+                    entry.appstoreSource.substring(7) == httpsUrl.substring(8)) {
+                    changed = true
+                    entry.copy(appstoreSource = httpsUrl)
+                } else entry
+            }
+        }
+        if (changed) libPebbleLockerProxy.requestLockerSync()
     }
 
     private companion object {

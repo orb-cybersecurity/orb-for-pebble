@@ -7,7 +7,7 @@ internal class ConfigPageDocument(private val requestedUrl: String) {
 
     fun recordInitialLoad(url: String?) {
         if (firstUrl == null && url != null &&
-            (configPageOrigin(url) != null || url == requestedUrl && url.startsWith("data:"))) firstUrl = url
+            (configPageOrigin(url) != null || requestedUrl.startsWith("data:", true) && url.startsWith("data:", true))) firstUrl = url
     }
 }
 

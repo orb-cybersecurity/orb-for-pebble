@@ -21,7 +21,7 @@ class PkjsCspTest {
             assertTrue(source.matches(Regex("'[a-z-]+'|'sha256-[A-Za-z0-9+/=]+'|[a-z][a-z0-9+.-]*:")), source)
         }
         assertEquals(setOf("'none'"), directives["default-src"])
-        assertEquals(setOf("'none'"), directives["connect-src"])
+        assertEquals(setOf("data:", "blob:"), directives["connect-src"])
         for (directive in listOf("frame-src", "child-src", "worker-src", "object-src"))
             assertEquals(setOf("'none'"), directives[directive])
         assertEquals(setOf("'self'", "file:", "data:", "blob:"), directives["img-src"])

@@ -21,12 +21,17 @@ window._Pebble = new Proxy({
     const decode = src => new Promise(resolve => { const i = new Image(); i.onload = () => resolve(true); i.onerror = () => resolve(false); i.src = src; });
     const dataImage = await decode(image);
     const bytes = Uint8Array.from(atob(image.split(',')[1]), x => x.charCodeAt(0));
-    const blobImage = await decode(URL.createObjectURL(new Blob([bytes], {type: 'image/png'})));
+    const blobUrl = URL.createObjectURL(new Blob([bytes], {type: 'image/png'}));
+    const blobImage = await decode(blobUrl);
+    const dataFetch = new Uint8Array(await (await fetch(image)).arrayBuffer());
+    const blobFetch = new Uint8Array(await (await fetch(blobUrl)).arrayBuffer());
+    const localFetches = [dataFetch, blobFetch].every(value => value.length === bytes.length && value.every((b, i) => b === bytes[i]));
+    URL.revokeObjectURL(blobUrl);
     document.body.dataset.runtime = JSON.stringify({
       guard: typeof __pebbleGuardRealms === 'function', pebble: typeof Pebble.addEventListener === 'function',
       ready: typeof signalReady === 'function', messages: typeof signalNewAppMessageData === 'function',
       config: typeof signalShowConfiguration === 'function', rtc: typeof RTCPeerConnection,
-      dataImage, blobImage, violations });
+      dataImage, blobImage, localFetches, violations });
   }
 }, {get: (o,k) => k in o ? o[k] : () => null});
 '''
@@ -48,12 +53,14 @@ class PkjsRuntimeTest(unittest.TestCase):
             for asset in ('startup.js', 'realm_guard.js'):
                 shutil.copyfile(ASSETS / asset, work / asset)
             (work / 'native.js').write_text(NATIVE)
+            fetch_source = (ASSETS.parent / 'kotlin/io/rebble/libpebblecommon/js/PkjsFetchJs.kt').read_text()
+            (work / 'fetch.js').write_text(re.search(r'"""(.*?)"""', fetch_source, re.S)[1])
             page = (ASSETS / 'webview_startup.html').read_text()
             if invalid_source:
                 page = page.replace('script-src file:', 'script-src file:///android_asset/')
             # Only resource URLs move; the production CSP is tested unchanged.
             page = page.replace('src="file:///android_asset/', 'src="' + work.as_uri() + '/')
-            page = page.replace('    <script type=', f'    <script src="{(work / "native.js").as_uri()}"></script>\n    <script type=', 1)
+            page = page.replace('    <script type=', f'    <script src="{(work / "native.js").as_uri()}"></script>\n    <script src="{(work / "fetch.js").as_uri()}"></script>\n    <script type=', 1)
             (work / 'test.html').write_text(page)
             result = subprocess.run(['unshare', '--user', '--map-root-user', '--net', self.browser,
                 '--headless', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
@@ -71,7 +78,7 @@ class PkjsRuntimeTest(unittest.TestCase):
         match = re.search(r'data-runtime="([^"]+)"', result.stdout)
         self.assertIsNotNone(match, result.stdout + result.stderr)
         self.assertEqual(dict(guard=True, pebble=True, ready=True, messages=True, config=True,
-                              rtc='undefined', dataImage=True, blobImage=True, violations=[]),
+                              rtc='undefined', dataImage=True, blobImage=True, localFetches=True, violations=[]),
                          json.loads(html.unescape(match[1])))
         self.assertNotIn('invalid source', result.stderr)
 

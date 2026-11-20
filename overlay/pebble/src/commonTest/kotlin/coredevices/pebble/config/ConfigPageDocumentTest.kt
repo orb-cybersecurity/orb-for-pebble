@@ -6,6 +6,22 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConfigPageDocumentTest {
+    @Test fun firstCommittedDataUrlPinsTheCanonicalFormAndCannotBeReplaced() {
+        val raw = "data:text/html,<p>café</p>"
+        val canonical = "data:text/html,%3Cp%3Ecaf%C3%A9%3C/p%3E"
+        val document = ConfigPageDocument(raw)
+        document.recordInitialLoad("about:blank")
+        document.recordInitialLoad(canonical)
+        document.recordInitialLoad("data:text/html,foreign")
+        assertEquals(canonical, document.expectedUrl)
+        assertTrue(configPageMayComplete(document.expectedUrl, canonical, true, null) { false })
+        assertFalse(configPageMayComplete(document.expectedUrl, raw, true, null) { false })
+        assertFalse(configPageMayComplete(document.expectedUrl, "data:text/html,foreign", true, null) { false })
+        val https = ConfigPageDocument("https://example.org")
+        https.recordInitialLoad(canonical)
+        assertEquals("https://example.org", https.expectedUrl)
+    }
+
     @Test fun firstFinalOriginOwnsLegacyCloseStorageAndBridgeAndIsNeverRepinned() {
         val document = ConfigPageDocument("https://initial.example/settings")
         document.recordInitialLoad(null)
