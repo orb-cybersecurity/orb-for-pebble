@@ -55,6 +55,7 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
 - The health library's Google Fit fallback. Health Connect remains available
   where the phone supports it.
 - The link to Core's getting-started guide, which describes Core's app.
+- Classic PebbleKit, the original API for phone apps. Phone apps need PebbleKit 2.
 - Core's test hooks for adb, which let a shell user attach an emulated watch,
   start the developer connection or change any setting, and a Bluetooth pairing
   logger that wrote pairing keys into the shared logs.
@@ -86,7 +87,7 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   "Ask before older apps use other permissions" is on, or with "Ask before apps use
   permissions" set to "Never". Observers can see that connected watches, the running
   watchapp, or companion access changed; no watch, app, companion or serial is
-  revealed. Phone apps need PebbleKit 2. The original companion API is removed.
+  revealed.
 - **Dictation:** Orb uses the phone's selected speech recognition service.
   System/offline dictation is not yet available on GrapheneOS. Rebble dictation
   works with a Rebble subscription; select a Rebble mode in speech settings.
@@ -216,8 +217,10 @@ and install it by hand. Nothing will then tell you about updates.
 F-Droid will follow once Orb meets F-Droid's requirement for a period of active
 development.
 
-Orb can be installed next to Core's official app or another fork, but only one app
-should connect to a watch at a time.
+Android can install Orb next to the original Pebble app, Cobble, Gadgetbridge,
+Core's app or microPebble. Orb won't connect to a watch while one is installed
+unless "Ignore other Pebble apps" is on. Uninstall them first. Enabling that
+setting can make BLE connections unreliable and is not recommended.
 
 ## Building
 

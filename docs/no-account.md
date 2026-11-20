@@ -130,8 +130,8 @@ locker. You can also open a `.pbw` file from a file manager or a download. Orb
 names the app before anything is installed.
 
 **PebbleKit 2 companions.** Watch data and app control require a stored PebbleKit2
-companion declaration and allowed access. Phone apps need PebbleKit 2. The original
-companion API is removed.
+companion declaration and allowed access. Classic PebbleKit is removed; phone apps
+need PebbleKit 2.
 Queries return nothing until the companion is allowed: by the user, automatically
 for watchapps built before permissions unless "Ask before older apps use other
 permissions" is on, or with "Ask before apps use permissions" set to "Never".

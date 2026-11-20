@@ -9,6 +9,7 @@
 <li>The prebuilt Cactus speech engine</li>
 <li>Support for Core's Index 01 ring, whose radio library is closed source. Orb has no plans to support the ring.</li>
 <li>The Google Fit fallback (Health Connect is still used where available)</li>
+<li>Classic PebbleKit, the original API for phone apps. Phone apps need PebbleKit 2.</li>
 </ul>
 
 <p>There is no Core account in Orb, so Core's cloud locker, cloud speech recognition and bug-report upload are unavailable. Orb imports your Rebble locker when signed in to Rebble. Bug reports can be saved and shared as a ZIP file.</p>
@@ -19,8 +20,8 @@
 <li>PebbleOS updates for watches made by Core come from Core's public releases on GitHub. Each release is checked (published SHA-256, board, version and CRCs) before it is offered. Older Pebble watches update from Rebble.</li>
 </ul>
 
-<p>Orb blocks plain HTTP for itself, watchapps and settings pages and trusts system CAs only. The original companion API is removed. Phone apps need PebbleKit 2, a stored companion declaration and allowed access.</p>
+<p>Orb blocks plain HTTP for itself, watchapps and settings pages and trusts system CAs only. PebbleKit 2 phone apps need a stored companion declaration and allowed access.</p>
 
-<p>Orb can be installed next to other Pebble apps, but only one app should connect to a watch at a time.</p>
+<p>Android can install Orb next to the original Pebble app, Cobble, Gadgetbridge, Core's app or microPebble. Orb won't connect to a watch while one is installed unless "Ignore other Pebble apps" is on. Uninstall them first. Enabling that setting can make BLE connections unreliable and is not recommended.</p>
 
 <p>Orb for Pebble is not affiliated with or endorsed by Core Devices. Pebble is a trademark of Core Devices LLC; the name is used only to say which watches the app works with.</p>

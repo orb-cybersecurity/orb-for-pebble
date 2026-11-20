@@ -5801,7 +5801,7 @@ import kotlinx.coroutines.flow.Flow''')
 
 
 def remove_classic_pebblekit() -> None:
-    """Remove the original companion API and retire its saved setting and permission."""
+    """Remove Classic PebbleKit and retire its saved setting and permission."""
     base = "libpebble3/src"
     package = "kotlin/io/rebble/libpebblecommon"
     main = f"{base}/androidMain/kotlin/main.kt"
@@ -5826,6 +5826,20 @@ def remove_classic_pebblekit() -> None:
         replace_literal(path, "    legacyPebbleKitEnabled: Boolean,\n", "")
         if source == "commonMain":
             replace_literal(path, "                    legacyPebbleKitEnabled = libPebbleConfigFlow.value.watchConfig.enableLegacyPebbleKit,\n", "")
+            # An app without a companion must not leave a scope or message collector running.
+            start = "            val appIncomingChannels = newApps.map { Channel<AppMessageData>(Channel.BUFFERED) }"
+            end = """            activeAppScope.launch {
+                device.inboundAppMessages(lockerEntry.id).collect { message ->
+                    for (channel in appIncomingChannels) {
+                        channel.trySend(message)
+                    }
+                }
+            }"""
+            edit(path, re.escape(start) + r"[\s\S]*?" + re.escape(end),
+                 """            activeAppScope.startCompanionApps(newApps) { device.inboundAppMessages(lockerEntry.id) }""")
+            replace_literal(path, "import io.rebble.libpebblecommon.services.appmessage.AppMessageData\n", "")
+            for imported in ("channels.Channel", "flow.receiveAsFlow", "launch"):
+                replace_literal(path, f"import kotlinx.coroutines.{imported}\n", "")
         if source == "androidMain":
             replace_literal(path, "import io.rebble.libpebblecommon.pebblekit.classic.PebbleKitClassic\n", "")
             replace_literal(path, "        legacyPebbleKitEnabled -> PebbleKitClassic(device, appInfo, pkjsRunning, connectionCoroutineScope)\n", "")
@@ -5847,12 +5861,12 @@ def remove_classic_pebblekit() -> None:
                     "    if (hasAndroidCompanion) add(PluginPermissions.LEGACY_PEBBLEKIT)\n}",
                     "internal fun legacyRequested(hasPkjs: Boolean): List<String> =\n"
                     "    if (hasPkjs) LEGACY_PKJS else emptyList()\n\n"
-                    "/** Retired keys can remain in saved rows or old watchapp manifests. */\n"
+                    "/** Old watchapp manifests can still declare retired built-in permissions. */\n"
                     'internal fun isRemovedPermission(key: String): Boolean = permissionOf(key) == "LegacyPebbleKit"')
     replace_literal(registry, "fun PluginPermission.keys(): List<String> {\n",
-                    "fun PluginPermission.keys(): List<String> {\n    if (isRemovedPermission(name)) return emptyList()\n")
+                    "fun PluginPermission.keys(): List<String> {\n    if (plugin == null && isRemovedPermission(name)) return emptyList()\n")
     replace_literal(registry, "fun List<PluginPermission>.describesRequired(): Boolean = any { it.required != null }",
-                    "fun List<PluginPermission>.describesRequired(): Boolean = any { !isRemovedPermission(it.name) && it.required != null }")
+                    "fun List<PluginPermission>.describesRequired(): Boolean = any { !(it.plugin == null && isRemovedPermission(it.name)) && it.required != null }")
     requested = f"{base}/commonMain/{package}/permissions/RequestedPermissions.kt"
     permissions = f"{base}/commonMain/{package}/permissions/AppPermissions.kt"
     for path in (requested, permissions):
@@ -5867,18 +5881,68 @@ def remove_classic_pebblekit() -> None:
                     "    hasAndroidCompanion = companions.android != null,\n", "")
     replace_literal(permissions, "legacyRequested(hasPkjs = true, hasAndroidCompanion = true)", "legacyRequested(hasPkjs = true)")
     replace_literal(permissions, "isLegacyImplicit(permission, subject.hasAndroidCompanion)", "isLegacyImplicit(permission)")
-    # Use the existing per-app reconciliation to delete saved rows; filter them even before it runs.
-    replace_literal(permissions, "            permissionOf(it) == PluginPermissions.PEBBLEKIT_2 && it !in all",
-                    "            isRemovedPermission(it) || (permissionOf(it) == PluginPermissions.PEBBLEKIT_2 && it !in all)")
-    replace_literal(permissions, "config.disables(it.permission)", "isRemovedPermission(it.permission)", expect=3)
-    replace_literal(permissions, "config.disables(permission)", "isRemovedPermission(permission)")
-    replace_literal(permissions, "rows.filter { it.granted != null }",
-                    "rows.filter { !isRemovedPermission(it.permission) && it.granted != null }")
+    # Per-app reconciliation skips unchanged apps and uncached PBWs. Delete old rows once
+    # for the whole database, before backfilling declarations in the startup coroutine.
+    dao = f"{base}/commonMain/{package}/database/dao/LockerAppPermissionDao.kt"
+    replace_literal(dao, '    @Query("DELETE FROM AppPermission WHERE appUuid = :appUuid")',
+                    '''    @Query("DELETE FROM AppPermission WHERE permission = 'LegacyPebbleKit' OR permission LIKE 'LegacyPebbleKit/%'")
+    suspend fun deleteRetiredPermissions()
+
+    @Query("DELETE FROM AppPermission WHERE appUuid = :appUuid")''')
+    locker = f"{base}/commonMain/{package}/locker/Locker.kt"
+    replace_literal(locker, "import com.russhwolf.settings.Settings\n",
+                    "import com.russhwolf.settings.Settings\nimport io.rebble.libpebblecommon.database.dao.LockerAppPermissionDao\n")
+    flag = "PREF_KEY_HAVE_REMOVED_CLASSIC_PERMISSIONS"
+    replace_literal(locker, '        private const val PREF_KEY_HAVE_BACKFILLED_DECLARED_PERMISSIONS',
+                    f'        private const val {flag} = "have_removed_classic_permissions"\n'
+                    '        private const val PREF_KEY_HAVE_BACKFILLED_DECLARED_PERMISSIONS')
+    replace_literal(locker, "        private val WATCH_REMOVAL_TIMEOUT = 20.seconds",
+                    f"""
+        internal suspend fun removeRetiredPermissionsOnce(dao: LockerAppPermissionDao, settings: Settings) {{
+            if (!settings.getBoolean({flag}, false)) {{
+                dao.deleteRetiredPermissions()
+                settings[{flag}] = true
+            }}
+        }}
+
+        private val WATCH_REMOVAL_TIMEOUT = 20.seconds""")
+    replace_literal(locker, """            appPermissionDao.deleteForRemovedApps()
+        }
+        // Permissions recorded before `declared` existed don't say which were declared.
+        if (!settings.getBoolean(PREF_KEY_HAVE_BACKFILLED_DECLARED_PERMISSIONS, false)) {
+            coroutineScope.launch {
+                backfillAppInfo()
+                settings[PREF_KEY_HAVE_BACKFILLED_DECLARED_PERMISSIONS] = true
+            }
+        }""", """            appPermissionDao.deleteForRemovedApps()
+            removeRetiredPermissionsOnce(appPermissionDao, settings)
+            // Permissions recorded before `declared` existed don't say which were declared.
+            if (!settings.getBoolean(PREF_KEY_HAVE_BACKFILLED_DECLARED_PERMISSIONS, false)) {
+                backfillAppInfo()
+                settings[PREF_KEY_HAVE_BACKFILLED_DECLARED_PERMISSIONS] = true
+            }
+        }""")
+    # Unknown keys are already denied before consulting saved grants. Only status views
+    # and decision export need a known-key guard while startup cleanup is still pending.
+    replace_literal(permissions, "rows.filterNot { config.disables(it.permission) }.mapNotNull { row ->",
+                    "rows.mapNotNull { row ->\n    if (permissionKind(row.permission, pluginDefined) == null) return@mapNotNull null")
+    replace_literal(permissions, "    if (config.disables(permission)) return PermissionDecision.Denied\n", "")
+    replace_literal(permissions, "    val rows = rows.filterNot { config.disables(it.permission) }\n", "")
+    replace_literal(permissions, "        dao.allFlow().map { rows -> rows.filter { it.granted != null } }",
+                    """        combine(dao.allFlow(), installed.pluginPermissions()) { rows, defined ->
+            rows.filter { it.granted != null && permissionKind(it.permission, defined) != null }
+        }""")
+    replace_literal(permissions, """    /** Lists [permission] for the user to allow, without asking. */
+    suspend fun recordDenied(appUuid: Uuid, permission: String) {
+        val now = clock.now().toEpochMilliseconds()
+        dao.insertIfAbsent(listOf(LockerAppPermission(appUuid, permission, granted = false, requestedAtMs = now, decidedAtMs = now)))
+    }
+
+""", "")
     replace_literal(permissions, "/** While Legacy PebbleKit is switched off, it's never granted or listed. */\n"
                     "private fun WatchConfig.disables(permission: String) =\n"
                     "    permission == PluginPermissions.LEGACY_PEBBLEKIT && !enableLegacyPebbleKit\n\n", "")
-    # Filtering the retired row cannot change the exfiltration result: it has no permission kind.
-    replace_literal(permissions, "        val config = watchConfig.value\n        val rows = dao.getByAppUuid(appUuid).filterNot { isRemovedPermission(it.permission) }",
+    replace_literal(permissions, "        val config = watchConfig.value\n        val rows = dao.getByAppUuid(appUuid).filterNot { config.disables(it.permission) }",
                     "        val rows = dao.getByAppUuid(appUuid)")
     review = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/InstallReview.kt"
     replace_literal(review, "PluginPermissions.LEGACY_PEBBLEKIT, PluginPermissions.PEBBLEKIT_2 ->", "PluginPermissions.PEBBLEKIT_2 ->")
@@ -5886,6 +5950,14 @@ def remove_classic_pebblekit() -> None:
     replace_literal(review, "import androidx.compose.material.icons.filled.Campaign\n", "")
 
     tests = f"{base}/commonTest/{package}/permissions/AppPermissionsTest.kt"
+    replace_literal(tests, "    override suspend fun deleteForRemovedApps() {}",
+                    """    override suspend fun deleteForRemovedApps() {}
+
+    override suspend fun deleteRetiredPermissions() {
+        rows.value = rows.value.filterKeys {
+            it.second != "LegacyPebbleKit" && !it.second.startsWith("LegacyPebbleKit/")
+        }
+    }""")
     replace_literal(tests, "import io.rebble.libpebblecommon.plugin.PluginPermissions.LEGACY_PEBBLEKIT\n", "")
     replace_literal(tests, "    hasAndroidCompanion: Boolean = false,\n", "")
     replace_literal(tests, "PermissionSubject(APP, legacy, hasAndroidCompanion, hasCompanionApp, legacyForHealth)",

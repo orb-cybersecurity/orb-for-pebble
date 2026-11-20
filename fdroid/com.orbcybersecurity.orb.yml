@@ -79,8 +79,7 @@ MaintainerNotes: |-
   sideloaded PBWs plus extracted PKJS) through encrypted backup services or device transfer.
   Files in cache/, including logs, and plugin encryption keys are excluded. Backups may
   exceed a service's quota. Recovery watches can install normal firmware regardless of the
-  recovery version. Classic PebbleKit needs PebbleKit2 companion declarations; start/stop
-  also requires Android 14+ and a sender that shares its identity.
+  recovery version. Classic PebbleKit is removed; phone apps need PebbleKit 2.
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^[0-9.]+-orb[0-9]+$
