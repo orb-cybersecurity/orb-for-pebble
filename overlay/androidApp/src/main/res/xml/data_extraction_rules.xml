@@ -4,10 +4,12 @@
   device-transfer rules; other backup services use cloud-backup, and only when they encrypt on
   the phone.
 
-  Included: the databases (watches, the locker of installed apps, notification and health
-  settings, permission answers), the settings file (which store each store app came from, the
-  Rebble sign-in) and the watchapp files installed from files rather than a store. Store apps
-  are downloaded again from their store when needed. Caches and logs are never copied.
+  Included: whole databases, including watches, locker entries, notification history,
+  health/settings data, permission answers, per-app network usage and plugin-action history;
+  all shared preferences, including the Rebble sign-in; and everything in files/pbw/.
+  That directory holds both store and sideloaded PBWs and extracted PKJS files. Its store
+  PBWs are a cache in use, but are included in backup. cache/ and logs there are excluded.
+  Backup size depends on those files and histories and may exceed a service's quota.
 
   A plugin's secrets are encrypted under a key that stays on the phone that wrote them, so a
   restored copy can't be read; Orb discards them and the plugin asks again.

@@ -44,10 +44,12 @@ the list in its cloud under your account (`FirestoreLocker`). Orb keeps it on th
 phone (overlay `FirestoreLocker.kt`, `LocalLocker`). Android's backup carries it
 instead. On GrapheneOS that is Seedvault, which encrypts the backup on the phone
 and writes it to a USB drive or any folder the system file picker reaches. Orb's
-backup rules (`res/xml/data_extraction_rules.xml`) copy Orb's databases, its
-app settings (including the Rebble sign-in) and the apps you opened from `.pbw` files. That covers your watches,
-the locker, which store each app came from, your settings, your Rebble sign-in and
-your answers to watchapp permission requests.
+backup rules (`res/xml/data_extraction_rules.xml`) copy whole databases, including
+notification history, per-app network usage and plugin-action history; app settings
+including the Rebble sign-in; and everything in `files/pbw/`, including store and
+sideloaded PBWs and extracted PKJS files. This carries watches, the locker, store
+ownership and permission answers too. These files and histories can exceed a backup
+service's quota.
 
 1. On the old phone, open Settings → System → Backup and turn backups on. Write
    down the recovery code it shows. Choose where backups go, then run a backup.
@@ -63,7 +65,8 @@ What does not come back:
 - **Plugin secrets**, such as a plugin's sign-in to another service. They are
   encrypted under a key that never leaves the old phone. Orb drops them on the
   new phone, and the plugin asks again.
-- **Caches and logs**, which Orb fetches or writes again as needed.
+- **Files under `cache/`, including logs**, which Orb fetches or writes again as
+  needed. Cached store PBWs under `files/pbw/` are included.
 
 Without a backup, nothing restores apps from Core's store. If you are signed in to
 Rebble, Orb brings in your Rebble locker on each sync. A sync never removes an
@@ -126,6 +129,12 @@ installs from the Rebble store are also added to your Rebble locker. You can als
 open a `.pbw` file from a file manager or a download. Orb names the app before
 anything is installed.
 
+**PebbleKit companions.** Orb requires a persisted PebbleKit2 companion declaration
+before exposing watches or allowing app control, including through classic PebbleKit.
+Classic apps without that declaration are incompatible. Classic start/stop also needs
+Android 14 or newer and a sender that shares its identity; communication requires the
+user's permission. PBW cache eviction does not remove a declaration.
+
 **Weather.** Core's weather service takes no account or token
 (`HttpClientAuthType.None`). It receives the coordinates of each weather
 location.
@@ -156,10 +165,11 @@ Updating from 1.18.0.1-orb2 keeps stores, locker ownership and watch data.
 and sync tables. An install that already had commit `4e3b3ec` stays at the same
 v12 schema. Separately, `libpebble3.db` follows Core's v51 → v52 → v53 → v54
 migrations, adding local usage/action history and carrying microphone grants into
-watch permission bits. See [the port report](port-2.0.0.md) for validation details.
+watch permission bits.
 
-Orb refuses automatic and offered firmware downgrades. An explicit hidden version
-pin can downgrade a Core watch, with manual installation only. Original Pebble
+Orb refuses automatic and offered downgrades of normal firmware. A watch in
+recovery can install normal firmware regardless of its recovery version. An explicit
+hidden version pin can downgrade a Core watch, with manual installation only. Original Pebble
 firmware must match its published SHA-256. Outbound web connections trust system
 CAs only, excluding user-installed CAs. The off-by-default LAN developer server
 uses an unencrypted local connection.

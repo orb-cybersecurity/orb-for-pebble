@@ -74,8 +74,13 @@ MaintainerNotes: |-
   The off-by-default LAN developer server uses an unencrypted local connection.
   Web connections trust system CAs only. Firmware offers refuse downgrades; an explicit
   hidden version pin can downgrade with manual installation only. Android backup
-  copies databases, app settings including the Rebble sign-in, and sideloaded watchapps through encrypted backup services or
-  device transfer; caches, logs and plugin encryption keys stay on the phone.
+  copies whole databases (including notification history, network usage and plugin-action
+  history), app settings including the Rebble sign-in, and all of files/pbw/ (store and
+  sideloaded PBWs plus extracted PKJS) through encrypted backup services or device transfer.
+  Files in cache/, including logs, and plugin encryption keys are excluded. Backups may
+  exceed a service's quota. Recovery watches can install normal firmware regardless of the
+  recovery version. Classic PebbleKit needs PebbleKit2 companion declarations; start/stop
+  also requires Android 14+ and a sender that shares its identity.
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^[0-9.]+-orb[0-9]+$

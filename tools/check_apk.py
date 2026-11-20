@@ -134,9 +134,8 @@ def resource_files(apk: str) -> dict[str, tuple[str, str]]:
     return files
 
 
-def check_exported_components(manifest: Node, application: Node, resource_names: dict[str, str]) -> list[str]:
-    """Reviewed release surface, including disabled aliases and system-bound services."""
-    allowed = json.loads((Path(__file__).with_name("exported_components.json")).read_text())
+def exported_components(manifest: Node, application: Node, resource_names: dict[str, str]) -> list[dict[str, str]]:
+    """Release surface, including disabled aliases and system-bound services."""
     actual = []
     app_permission = application.attrs.get("permission", "")
     for kind in ("activity", "activity-alias", "service", "receiver", "provider"):
@@ -162,6 +161,12 @@ def check_exported_components(manifest: Node, application: Node, resource_names:
             if kind == "provider":
                 row["authorities"] = attrs.get("authorities", "")
             actual.append(row)
+    return actual
+
+
+def check_exported_components(manifest: Node, application: Node, resource_names: dict[str, str]) -> list[str]:
+    allowed = json.loads((Path(__file__).with_name("exported_components.json")).read_text())
+    actual = exported_components(manifest, application, resource_names)
     problems = []
     for component in actual:
         if component not in allowed:
@@ -172,7 +177,29 @@ def check_exported_components(manifest: Node, application: Node, resource_names:
     return problems
 
 
-def check_manifest(apk: str) -> list[str]:
+def check_activity_classes(manifest: Node, defined: set[str]) -> list[str]:
+    """Preview tooling never ships, and every exported activity must be instantiable."""
+    problems = []
+    package = manifest.find("manifest")[0].attrs.get("package", "")
+
+    def classname(name: str) -> str:
+        if name.startswith("."):
+            return package + name
+        return name if "." in name else package + "." + name
+
+    for kind in ("activity", "activity-alias"):
+        for activity in manifest.find(kind):
+            name = classname(activity.attrs.get("name", ""))
+            target = classname(activity.attrs.get("targetActivity", "")) if kind == "activity-alias" else name
+            if any("tooling" in n.lower() or "preview" in n.lower() for n in (name, target)):
+                problems.append(f"tooling/preview activity in release manifest: {name}")
+            exported = activity.attrs.get("exported", "true" if activity.find("intent-filter") else "false")
+            if exported == "true" and "L" + target.replace(".", "/") + ";" not in defined:
+                problems.append(f"exported activity class absent from dex: {target}")
+    return problems
+
+
+def check_manifest(apk: str, defined: set[str]) -> list[str]:
     problems = []
     manifest = xmltree(apk, "AndroidManifest.xml")
     application = manifest.find("application")[0]
@@ -181,6 +208,7 @@ def check_manifest(apk: str) -> list[str]:
                                    capture_output=True, text=True).stdout
     resource_names = dict(re.findall(r"^\s*resource (0x[0-9a-f]+) (\S+)", resource_dump, re.MULTILINE))
     problems += check_exported_components(manifest, application, resource_names)
+    problems += check_activity_classes(manifest, defined)
 
     def rules(attr: str, name: str) -> Node | None:
         ref = application.attrs.get(attr, "").lstrip("@")
@@ -260,7 +288,7 @@ def main() -> int:
         if referenced:
             problems.append(f"{len(referenced)} references to missing {what} classes, e.g. {referenced[0]}")
 
-    problems += check_manifest(sys.argv[1])
+    problems += check_manifest(sys.argv[1], defined)
 
     print(f"{sys.argv[1]}: {len(defined)} classes in {sum(n.endswith('.dex') for n in names)} dex files")
     if problems:

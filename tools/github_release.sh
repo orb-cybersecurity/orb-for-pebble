@@ -15,7 +15,10 @@ log() { echo "github_release: $*"; }
 die() { echo "github_release: $*" >&2; exit 1; }
 
 cd "$ROOT"
+source "$ROOT/tools/release_common.sh"
 VERSION=${1:-$(python3 -c 'import apply; print(apply.read_version()[0])')}
+read -r CHECKOUT_VERSION VERSION_CODE < <(python3 -c 'import apply; print(*apply.read_version())')
+[ "$VERSION" = "$CHECKOUT_VERSION" ] || die "requested version $VERSION differs from version.properties ($CHECKOUT_VERSION)"
 APK=dist/orb-$VERSION.apk
 TXT=dist/orb-$VERSION.txt
 [ -f "$APK" ] && [ -f "$TXT" ] || die "no $APK and $TXT: run tools/release_build.sh first"
@@ -26,8 +29,18 @@ SHA=$(field sha256)
 CERT=$(field 'signing certificate sha256')
 [ "$(field version)" = "$VERSION" ] || die "$TXT is for another version"
 [ -n "$SHA" ] && [ -n "$CERT" ] || die "$TXT is incomplete"
+ACTUAL_CERT=$(orb_apk_certificate "$APK") || die "unexpected signing certificate"
+[ "$CERT" = "$ACTUAL_CERT" ] || die "$TXT certificate differs from the APK"
 [ "$(sha256sum "$APK" | cut -d' ' -f1)" = "$SHA" ] || die "$APK no longer matches $TXT"
 COMMIT=$(git rev-parse --verify -q "refs/tags/$VERSION^{commit}") || die "no local tag $VERSION"
+
+# The tag, checkout and notes must describe the same release before contacting GitHub.
+TAG_PROPERTIES=$(git show "$COMMIT:version.properties") || die "tag has no version.properties"
+[ "$(sed -n 's/^versionName=//p' <<<"$TAG_PROPERTIES")" = "$VERSION" ] || die "tag version mismatch"
+[ "$(sed -n 's/^versionCode=//p' <<<"$TAG_PROPERTIES")" = "$VERSION_CODE" ] || die "tag version code mismatch"
+CHANGES=$(git show "$COMMIT:fastlane/metadata/android/en-US/changelogs/$VERSION_CODE.txt") \
+  || die "tag has no changelog for $VERSION_CODE"
+[ -n "$CHANGES" ] || die "tag changelog is empty"
 
 command -v gh > /dev/null || die "the GitHub CLI (gh) is not installed"
 gh auth status > /dev/null 2>&1 || die "gh is not logged in"
@@ -44,10 +57,8 @@ fi
 
 # Release notes: the changelog for this version, how to check the file, and how to install.
 NAME=$(basename "$APK")
-VERSION_CODE=$(python3 -c 'import apply; print(apply.read_version()[1])')
-CHANGES=fastlane/metadata/android/en-US/changelogs/$VERSION_CODE.txt
 {
-  [ -f "$CHANGES" ] && { cat "$CHANGES"; echo; }
+  printf '%s\n\n' "$CHANGES"
   echo "### Verifying"
   echo
   echo "Signing certificate SHA-256 (the same for every Orb release):"
