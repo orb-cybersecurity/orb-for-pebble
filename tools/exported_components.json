@@ -9,7 +9,7 @@
   },
   {
     "kind": "activity-alias",
-    "name": "coredevices.coreapp.HealthPermissionsRationaleActivity",
+    "name": "coredevices.coreapp.FileOpenActivity",
     "permission": "",
     "readPermission": "",
     "writePermission": "",
@@ -18,10 +18,10 @@
   },
   {
     "kind": "activity-alias",
-    "name": "coredevices.coreapp.ViewPermissionUsageActivity",
-    "permission": "android.permission.START_VIEW_PERMISSION_USAGE",
-    "readPermission": "android.permission.START_VIEW_PERMISSION_USAGE",
-    "writePermission": "android.permission.START_VIEW_PERMISSION_USAGE",
+    "name": "coredevices.coreapp.HealthPermissionsRationaleActivity",
+    "permission": "",
+    "readPermission": "",
+    "writePermission": "",
     "enabled": "true",
     "targetActivity": "coredevices.coreapp.MainActivity"
   },
@@ -36,21 +36,12 @@
   },
   {
     "kind": "activity-alias",
-    "name": "coredevices.coreapp.FileOpenActivity",
-    "permission": "",
-    "readPermission": "",
-    "writePermission": "",
+    "name": "coredevices.coreapp.ViewPermissionUsageActivity",
+    "permission": "android.permission.START_VIEW_PERMISSION_USAGE",
+    "readPermission": "android.permission.START_VIEW_PERMISSION_USAGE",
+    "writePermission": "android.permission.START_VIEW_PERMISSION_USAGE",
     "enabled": "true",
     "targetActivity": "coredevices.coreapp.MainActivity"
-  },
-  {
-    "kind": "provider",
-    "name": "io.rebble.libpebblecommon.pebblekit.two.PebbleKitProvider",
-    "permission": "",
-    "readPermission": "",
-    "writePermission": "",
-    "enabled": "true",
-    "authorities": "com.orbcybersecurity.orb.pebblekit"
   },
   {
     "kind": "provider",
@@ -62,35 +53,28 @@
     "authorities": "com.getpebble.android.provider.basalt"
   },
   {
-    "kind": "service",
-    "name": "io.rebble.libpebblecommon.notification.LibPebbleNotificationListener",
-    "permission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
-    "readPermission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
-    "writePermission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
-    "enabled": "true"
-  },
-  {
-    "kind": "service",
-    "name": "io.rebble.libpebblecommon.calls.LibPebbleInCallService",
-    "permission": "android.permission.BIND_INCALL_SERVICE",
-    "readPermission": "android.permission.BIND_INCALL_SERVICE",
-    "writePermission": "android.permission.BIND_INCALL_SERVICE",
-    "enabled": "true"
-  },
-  {
-    "kind": "service",
-    "name": "io.rebble.libpebblecommon.pebblekit.two.PebbleSenderReceiver",
+    "kind": "provider",
+    "name": "io.rebble.libpebblecommon.pebblekit.two.PebbleKitProvider",
     "permission": "",
     "readPermission": "",
     "writePermission": "",
+    "enabled": "true",
+    "authorities": "com.orbcybersecurity.orb.pebblekit"
+  },
+  {
+    "kind": "receiver",
+    "name": "androidx.profileinstaller.ProfileInstallReceiver",
+    "permission": "android.permission.DUMP",
+    "readPermission": "android.permission.DUMP",
+    "writePermission": "android.permission.DUMP",
     "enabled": "true"
   },
   {
-    "kind": "activity",
-    "name": "org.jetbrains.androidx.compose.ui.tooling.PreviewActivity",
-    "permission": "",
-    "readPermission": "",
-    "writePermission": "",
+    "kind": "receiver",
+    "name": "androidx.work.impl.diagnostics.DiagnosticsReceiver",
+    "permission": "android.permission.DUMP",
+    "readPermission": "android.permission.DUMP",
+    "writePermission": "android.permission.DUMP",
     "enabled": "true"
   },
   {
@@ -110,19 +94,27 @@
     "enabled": "@bool/enable_system_job_service_default"
   },
   {
-    "kind": "receiver",
-    "name": "androidx.work.impl.diagnostics.DiagnosticsReceiver",
-    "permission": "android.permission.DUMP",
-    "readPermission": "android.permission.DUMP",
-    "writePermission": "android.permission.DUMP",
+    "kind": "service",
+    "name": "io.rebble.libpebblecommon.calls.LibPebbleInCallService",
+    "permission": "android.permission.BIND_INCALL_SERVICE",
+    "readPermission": "android.permission.BIND_INCALL_SERVICE",
+    "writePermission": "android.permission.BIND_INCALL_SERVICE",
     "enabled": "true"
   },
   {
-    "kind": "receiver",
-    "name": "androidx.profileinstaller.ProfileInstallReceiver",
-    "permission": "android.permission.DUMP",
-    "readPermission": "android.permission.DUMP",
-    "writePermission": "android.permission.DUMP",
+    "kind": "service",
+    "name": "io.rebble.libpebblecommon.notification.LibPebbleNotificationListener",
+    "permission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
+    "readPermission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
+    "writePermission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
+    "enabled": "true"
+  },
+  {
+    "kind": "service",
+    "name": "io.rebble.libpebblecommon.pebblekit.two.PebbleSenderReceiver",
+    "permission": "",
+    "readPermission": "",
+    "writePermission": "",
     "enabled": "true"
   }
 ]

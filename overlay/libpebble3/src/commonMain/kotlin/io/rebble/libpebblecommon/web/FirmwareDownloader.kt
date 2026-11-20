@@ -26,7 +26,21 @@ class FirmwareDownloader(
     private val appContext: AppContext,
 ) {
     private val logger = Logger.withTag("FirmwareDownloader")
-    private val fwDir = getLockerPBWCacheDirectory(appContext)
+    private val fwDir = getFirmwareDownloadDirectory(appContext)
+
+    init {
+        // No in-memory install survives a process restart. Remove old downloads, including
+        // those written to the PBW directory by earlier versions, before accepting new work.
+        for (directory in setOf(fwDir, getLockerPBWCacheDirectory(appContext))) {
+            if (SystemFileSystem.exists(directory)) {
+                SystemFileSystem.list(directory).filter { isFirmwareDownload(it) }.forEach(::discardFirmwareDownload)
+            }
+        }
+    }
+
+    internal fun discardDownload(path: Path) {
+        if (path.parent == fwDir) discardFirmwareDownload(path)
+    }
 
     suspend fun downloadFirmware(url: String, type: String): Path? {
         val path = Path(fwDir, "download-${kotlin.uuid.Uuid.random()}.$type")
@@ -69,5 +83,17 @@ suspend fun <T> withTimeoutOr(timeout: Duration, block: suspend CoroutineScope.(
         withTimeout(timeout, block)
     } catch (e: TimeoutCancellationException) {
         onTimeout()
+    }
+}
+
+internal fun isFirmwareDownload(path: Path): Boolean =
+    path.name in setOf("download.pbz", "download.pbl", "language.pbl") || Regex("download-[0-9a-fA-F-]+\\.(pbz|pbl)").matches(path.name)
+
+internal fun discardFirmwareDownload(path: Path) {
+    if (!isFirmwareDownload(path)) return
+    try {
+        SystemFileSystem.delete(path, mustExist = false)
+    } catch (_: Exception) {
+        Logger.withTag("FirmwareDownloader").w { "Could not remove temporary firmware download" }
     }
 }

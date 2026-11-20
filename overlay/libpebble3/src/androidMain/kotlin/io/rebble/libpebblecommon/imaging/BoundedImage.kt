@@ -5,7 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 
-internal data class ImageSnapshot(val bytes: ByteArray, val bitmap: Bitmap)
+internal data class ImageSnapshot(val bytes: ByteArray, val bitmap: Bitmap, val width: Int, val height: Int)
 internal fun boundedImage(context: Context, uri: Uri): ImageSnapshot? {
     if (uri.scheme != "content" && uri.scheme != "android.resource") return null
     return try {
@@ -31,6 +31,6 @@ internal fun boundedImage(context: Context, uri: Uri): ImageSnapshot? {
             }
         }
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
-        ImageSnapshot(bytes, bitmap)
+        ImageSnapshot(bytes, bitmap, bounds.outWidth, bounds.outHeight)
     } catch (_: Exception) { null }
 }

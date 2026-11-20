@@ -69,26 +69,34 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   account. Orb keeps it on the phone. Signed in to Rebble, Orb brings in your
   Rebble locker. A sync refreshes apps from the store they came from and never
   removes an installed app.
-- **Backup:** Orb's own rules say what Android's backup copies: the databases,
-  app settings including the Rebble sign-in, and apps opened from `.pbw` files, and nothing from caches or
-  logs. They go only to backup services that encrypt on the phone, or in a
-  device-to-device transfer such as Seedvault's. Core's rules only excluded
+- **Backup:** Android copies the whole databases, including notification history,
+  per-app network usage and plugin-action history; app settings including the Rebble
+  sign-in; and everything in `files/pbw/` (store and sideloaded PBWs and extracted
+  PKJS files). Files in `cache/`, including logs, are excluded. These backups can
+  exceed a backup service's quota. They go only to backup services that encrypt on
+  the phone, or in a device-to-device transfer such as Seedvault's. Core's rules only excluded
   Firebase's files.
 - **Firmware updates for Core watches:** Orb uses Core's public GitHub releases
   because Core's update server requires an account. Older Pebble watches still
   update through Rebble. A version can be pinned under Settings → Debug after
   enabling "Show debug options".
+- **PebbleKit companions:** Providers and app control require a stored PebbleKit2
+  companion declaration. Classic PebbleKit apps without one cannot see watches or
+  control them. Classic start/stop also needs Android 14 or newer and a sender that
+  shares its identity. Communication still requires the user's permission.
 - **Dictation:** Orb uses the phone's selected speech recognition service.
   System/offline dictation is not yet available on GrapheneOS. Rebble dictation
   works with a Rebble subscription; select a Rebble mode in speech settings.
   Other Android systems need Android 13 or newer and a recognizer app that accepts recorded audio for system dictation.
 
-For Core watches, Orb selects the newest non-draft, non-prerelease firmware newer
-than the installed version, checking the watch board, published SHA-256 digest,
+For Core watches running normal firmware, Orb selects the newest non-draft,
+non-prerelease firmware newer than the installed version, checking the watch board,
+published SHA-256 digest,
 download hash, manifest board and version, and CRCs. If a release fails these
 checks, it tries the next older eligible release. Automatic and offered updates refuse
-firmware older than the running version. An explicit hidden version pin may downgrade,
-but is never installed automatically. Original Pebble firmware must match Rebble’s
+firmware older than normal running firmware. Recovery firmware can take a normal
+release regardless of its recovery version. An explicit hidden version pin may
+downgrade, but is never installed automatically. Original Pebble firmware must match Rebble’s
 published SHA-256 too.
 
 ## Network and privacy
@@ -99,11 +107,11 @@ Orb itself contacts only these services:
   (`appstore-api.rebble.io`), app downloads and images (`binaries.rebble.io`,
   `assets2.rebble.io`), firmware for older Pebble watches (`cohorts.rebble.io`),
   and Rebble dictation if you choose it.
-- **Core's Pebble app store** (`appstore-api.repebble.com`) and timeline icons
-  (`developer.repebble.com`). Language contribution pages (`translate.repebble.com`)
+- **Core's Pebble app store** (`appstore-api.repebble.com`), its search endpoint
+  (`appsearch.cluster.repebble.com`) and timeline icons (`developer.repebble.com`). Language contribution pages (`translate.repebble.com`)
   open in your browser.
-- **Algolia**, a third-party search service, when you search an app store. It uses
-  the stores' public search-only keys.
+- **Algolia**, a third-party search service, when you search the Rebble store,
+  using that store's public search-only keys.
 - **Core's weather service** (`weather-api.repebble.com`) while weather is on, which
   it is by default. It receives the coordinates of each weather location. Watch apps
   that ask OpenWeatherMap's or Yahoo's old weather APIs are answered from the same
@@ -142,8 +150,8 @@ Core's analytics and Core's watch analytics and Memfault diagnostics uploads are
 all removed. Data the watch offers for them is dropped on the phone.
 
 The per-app network-usage and plugin-action history screens introduced in 2.0.0
-keep their records on the phone. They enter a shared log file only when you choose
-Share Logs.
+store their records in Orb's databases on the phone and in Android backups and
+transfers you enable. They enter a shared log file only when you choose Share Logs.
 
 ## Installing
 

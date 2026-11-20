@@ -18,7 +18,10 @@ ALIAS=${2:-orb}
 BUNDLETOOL_VERSION=1.18.3
 BUNDLETOOL_SHA256=a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
 export JAVA_HOME=${JAVA_HOME:-$HOME/.local/jdk/jdk-21.0.13+9}
-BT_DIR=$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}"/build-tools/*/ | sort -V | tail -1)
+export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+source "$ROOT/tools/release_common.sh"
+BT_DIR=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/orb-tools
 log() { echo "release_build: $*"; }
 die() { echo "release_build: $*" >&2; exit 1; }
@@ -53,8 +56,12 @@ VERSION=$(python3 -c 'import apply; print(apply.read_version()[0])')
 [ "$(git describe --exact-match --tags HEAD 2>/dev/null)" = "$VERSION" ] || die "HEAD is not tagged $VERSION"
 rm -f "dist/orb-$VERSION.apk" "dist/orb-$VERSION.txt"
 python3 apply.py --reset >/dev/null
-sh tools/check_deps.sh || die "the release build resolves dependencies Orb must not ship"
+
+if [ ! -f mobileapp/local.properties ]; then
+  printf 'sdk.dir=%s\n' "$ANDROID_HOME" > mobileapp/local.properties
+fi
 ( cd mobileapp && ./gradlew -q :androidApp:bundleRelease --console=plain )
+bash tools/check_deps.sh || die "the release build resolves dependencies Orb must not ship"
 AAB=mobileapp/androidApp/build/outputs/bundle/release/androidApp-release.aab
 [ -f "$AAB" ] || die "no bundle at $AAB"
 
@@ -70,8 +77,7 @@ unzip -qq -p "$WORK/universal.apks" universal.apk > "$APK"
 CERTS=$("$BT_DIR/apksigner" verify -v --print-certs "$APK" 2>/dev/null) || die "signature verification failed"
 grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' <<<"$CERTS" || die "not signed with v2"
 grep -qi 'CN=Android Debug' <<<"$CERTS" && die "signed with a debug certificate"
-CERT_SHA=$(sed -n 's/.*Signer: certificate SHA-256 digest: //p' <<<"$CERTS" | head -1)
-[ -n "$CERT_SHA" ] || die "no signing certificate found"
+CERT_SHA=$(orb_apk_certificate "$APK") || die "unexpected signing certificate"
 PKG=$("$BT_DIR/aapt2" dump packagename "$APK")
 [ "$PKG" = com.orbcybersecurity.orb ] || die "unexpected package $PKG"
 BADGING=$("$BT_DIR/aapt2" dump badging "$APK")

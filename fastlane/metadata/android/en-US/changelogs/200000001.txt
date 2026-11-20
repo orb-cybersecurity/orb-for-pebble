@@ -1,5 +1,5 @@
-- Based on Core 2.0.0, retaining its permission and startup fixes.
-- Requires companion authorization and confirms incoming files before installation.
-- Binds external settings callbacks to one-use requests; applies live permission revocation.
-- Bounds imports, images and firmware downloads; verifies firmware hashes and refuses automatic downgrades.
-- Trusts system CAs only and clears account identity on logout or account switch.
+- Based on Core 2.0.0.
+- Classic PebbleKit requires PebbleKit2 companion declarations; control requires authorization.
+- Blocks HTTP for Orb, watchapps and settings pages; trusts system CAs only.
+- Confirms imports, bounds downloads and verifies firmware; restores recovery updates and the notification install action.
+- Fixes companion cache dependence, image aspect ratios, temp-file cleanup and release checks.

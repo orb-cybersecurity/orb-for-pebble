@@ -11,13 +11,15 @@
 <li>The Google Fit fallback (Health Connect is still used where available)</li>
 </ul>
 
-<p>There is no Core account in Orb, so cloud locker sync, cloud speech recognition and submitting bug reports to Core are not available. Bug reports can be saved and shared as a file.</p>
+<p>There is no Core account in Orb, so Core's cloud locker, cloud speech recognition and bug-report upload are unavailable. Orb imports your Rebble locker when signed in to Rebble. Bug reports can be saved and shared as a ZIP file.</p>
 
 <p><b>Replaced</b></p>
 <ul>
-<li>Dictation uses the phone's speech recognition service: whichever recognizer app is installed and selected (Android 13 or newer).</li>
+<li>System dictation needs Android 13 or newer and a recognizer that accepts recorded audio. System/offline dictation is not yet available on GrapheneOS. Rebble dictation works with a Rebble subscription; select a Rebble mode in speech settings.</li>
 <li>PebbleOS updates for watches made by Core come from Core's public releases on GitHub. Each release is checked (published SHA-256, board, version and CRCs) before it is offered. Older Pebble watches update from Rebble.</li>
 </ul>
+
+<p>Orb blocks plain HTTP for itself, watchapps and settings pages and trusts system CAs only. Classic PebbleKit currently requires PebbleKit2 companion declarations; classic start/stop also needs Android 14 or newer and a sender that shares its identity.</p>
 
 <p>Orb cannot be installed next to the official app or another build of it.</p>
 

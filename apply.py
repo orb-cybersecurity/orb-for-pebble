@@ -61,8 +61,6 @@ REPLACED = {
         "0e66a2604b8c9e08d5f6970d23743dfee771e8b03b143485854cd3d74581a532",
     "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/OnboardingScreen.kt":
         "751898c0160d2604f7e598356bd61245f637a0f65c179b8147146d8af6d6951f",
-    "composeApp/src/commonTest/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandlerTest.kt":
-        "cd116f99cce317aa67d5e339cc2769e2c663899333fd7f70b3d4a091c4286e42",
     "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchHomeScreen.kt":
         "9f809f82a8a7f34275ff9960fef49d15df5913cb33e83c3b51dd5907e9c180d7",
     "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchesScreen.kt":
@@ -2250,6 +2248,9 @@ def harden_release_manifest() -> None:
          '        <activity\n'
          '            android:name="androidx.compose.ui.tooling.PreviewActivity"\n'
          '            tools:node="remove" />\n'
+         '        <activity\n'
+         '            android:name="org.jetbrains.androidx.compose.ui.tooling.PreviewActivity"\n'
+         '            tools:node="remove" />\n'
          "    </application>\n")
     edit(manifest,
          r'^            <intent-filter android:autoVerify="true">\n(?:.*\n)*?'
@@ -3201,9 +3202,8 @@ import kotlinx.atomicfu.locks.synchronized\
 }
 """,
         """\
-    // Dimensions are taken from the bounded snapshot at decode time on the IO worker.
-    if (scheme != "content" && scheme != "android.resource") return null
-    return NotificationImage(NotificationImageSource.FromUri(this), 0, 0)
+    val snapshot = io.rebble.libpebblecommon.imaging.boundedImage(context, this) ?: return null
+    return NotificationImage(NotificationImageSource.FromBitmap(snapshot.bitmap), snapshot.width, snapshot.height)
 }
 """,
     )
@@ -3480,11 +3480,6 @@ private fun configNetworkJs(context: Context, csp: String?) =
         'logger.w { "Couldn\'t open incoming document" }',
     )
     replace_literal(
-        'pebble/src/commonMain/kotlin/coredevices/pebble/firmware/Cohorts.kt',
-        'watch.runningFwVersion.isRecovery || latestFwVersion > watch.runningFwVersion',
-        'latestFwVersion > watch.runningFwVersion',
-    )
-    replace_literal(
         'pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageBridge.kt',
         'logger.w(e) { "malformed call from config page" }',
         'logger.w { "malformed call from config page" }',
@@ -3751,15 +3746,6 @@ import kotlinx.io.files.Path\
         permissions.setDecisions(APP, mapOf(GLOBAL_INTERNET to true))
         assertIs<PluginNetworkVerdict.Allowed>(gate(legacy = true).check("https://anywhere.example.org/", wait = false))\
 """,
-    )
-    replace_literal(
-        'pebble/src/commonMain/kotlin/coredevices/pebble/services/EngDashOta.kt',
-        """\
-currentVersion = if (!watch.runningFwVersion.isRecovery) {
-                    ensureVersionPrefix(watch.runningFwVersion.stringVersion)
-                } else null\
-""",
-        'currentVersion = ensureVersionPrefix(watch.runningFwVersion.stringVersion)',
     )
     replace_literal(
         'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt',
@@ -4356,6 +4342,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_google_fit()
     fit_delegate_call()
     harden_orb_release()
+    fix_verified_review()
 
     if extra_abis:
         edit(
@@ -4369,6 +4356,264 @@ def apply(extra_abis: list[str]) -> None:
     MARKER.write_text(f"{version_name}\n")
     print(f"Applied Orb {version_name} ({version_code}) to {APP.relative_to(ROOT)}/")
 
+
+def fix_verified_review() -> None:
+    """Keep review fixes reproducible after restoring the pinned Core checkout."""
+    manifest = "androidApp/src/main/AndroidManifest.xml"
+    edit(manifest, r'^                <data android:scheme="file" />\n', '', expect=2)
+
+    fw = "libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/endpointmanager/FirmwareUpdater.kt"
+    replace_literal(fw, 'if (!pinned && update.version < fwupProps.runningFwVersion)',
+                    'if (!pinned && !fwupProps.runningFwVersion.isRecovery && update.version < fwupProps.runningFwVersion)')
+    replace_literal(fw, 'import io.rebble.libpebblecommon.web.FirmwareDownloader',
+                    'import io.rebble.libpebblecommon.web.discardFirmwareDownload\nimport io.rebble.libpebblecommon.web.FirmwareDownloader')
+    replace_literal(fw, '''    fun record(identifier: PebbleIdentifier, install: FirmwareInstall, reason: Reason = Reason.Interrupted) =
+        pending.update { it + (identifier to Pending(install, reason)) }
+
+    fun clear(identifier: PebbleIdentifier) = pending.update { it - identifier }''', '''    fun record(identifier: PebbleIdentifier, install: FirmwareInstall, reason: Reason = Reason.Interrupted) {
+        val previous = pending.value[identifier]?.install
+        pending.update { it + (identifier to Pending(install, reason)) }
+        if (previous != null && previous.path != install.path && previous.update.url.isNotEmpty()) {
+            discardFirmwareDownload(previous.path)
+        }
+    }
+
+    fun clear(identifier: PebbleIdentifier) {
+        val removed = pending.value[identifier]?.install
+        pending.update { it - identifier }
+        if (removed != null && removed.update.url.isNotEmpty()) discardFirmwareDownload(removed.path)
+    }''')
+    # The next PRF connection still needs the bundle. Clearing it is abandonment only on failure.
+    replace_literal(fw, '''                pendingInstalls.clear(identifier)
+                if (runningFwVersion.isRecovery) {''', '''                if (runningFwVersion.isRecovery) {''')
+    replace_literal(fw, '''                    continueInPrf(pending.install)
+                } else {''', '''                    continueInPrf(pending.install)
+                } else {
+                    pendingInstalls.clear(identifier)''')
+    replace_literal(fw, '''            if (route !is InstallRoute.Direct) {
+                _firmwareUpdateState''', '''            if (route !is InstallRoute.Direct) {
+                pendingInstalls.clear(identifier)
+                _firmwareUpdateState''')
+    replace_literal(fw, '''                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logger.w(e) { "Failed to parse firmware: ${e.message}" }''', '''                } catch (e: CancellationException) {
+                    discardFirmwareDownload(path)
+                    throw e
+                } catch (e: Exception) {
+                    discardFirmwareDownload(path)
+                    logger.w(e) { "Failed to parse firmware: ${e.message}" }''')
+    replace_literal(fw, '''            if (route == null) {
+                _firmwareUpdateState''', '''            if (route == null) {
+                pendingInstalls.clear(identifier)
+                _firmwareUpdateState''')
+    replace_literal(fw, '''           _firmwareUpdateState.value = FirmwareUpdateStatus.NotInProgress.Idle(e, trigger)
+        }
+    }
+
+    private suspend fun determineResumeOffsets''', '''           _firmwareUpdateState.value = FirmwareUpdateStatus.NotInProgress.Idle(e, trigger)
+        } finally {
+            // Metadata may survive for a resumed transfer or failed boot; the next attempt can
+            // re-download. Only the reboot-into-PRF handoff needs to keep the actual bundle.
+            if (install.update.url.isNotEmpty()) discardFirmwareDownload(install.path)
+        }
+    }
+
+    private suspend fun determineResumeOffsets''')
+    lang = "libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/endpointmanager/LanguagePackInstaller.kt"
+    replace_literal(lang, '            logger.d { "installLanguagePack() $path" }', '''            try {
+            logger.d { "installLanguagePack() $path" }''')
+    replace_literal(lang, '''                source.close()
+            }
+        }
+    }
+}''', '''                source.close()
+            }
+            } finally {
+                if (sideloadPath == null) io.rebble.libpebblecommon.web.discardFirmwareDownload(path)
+            }
+        }
+    }
+}''')
+
+    ws = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt'
+    replace_literal(ws, '        private val job = atomic<Job?>(null)', '''        private val job = atomic<Job?>(null)
+        private val overflow = atomic(false)''')
+    replace_literal(ws, '''                eval("$js._onClose($ABNORMAL_CLOSURE, '', false)")
+                throw e''', '''                if (overflow.value) fail() else eval("$js._onClose($ABNORMAL_CLOSURE, '', false)")
+                throw e''')
+    replace_literal(ws, '            outgoing.trySend(frame)', '            enqueue(frame)')
+    replace_literal(ws, '            outgoing.trySend(Frame.Close(CloseReason(code.toShort(), reason)))',
+                    '            enqueue(Frame.Close(CloseReason(code.toShort(), reason)))')
+    replace_literal(ws, '        fun cancel() {', '''        private fun enqueue(frame: Frame) {
+            if (outgoing.trySend(frame).isFailure && overflow.compareAndSet(false, true)) {
+                // Bridge calls cannot suspend. Fail the entire stream instead of losing a frame.
+                outgoing.close()
+                session.value?.cancel()
+                job.value?.cancel()
+            }
+        }
+
+        fun cancel() {''')
+
+    sender = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleSenderReceiver.kt'
+    replace_literal(sender, '''                    val result = runOnConnectedWatches(targets) { watch ->
+                        if (!allowed) TransmissionResult.FailedNoPermissions
+                        else {''', '''                    val result = io.rebble.libpebblecommon.pebblekit.companionResults(allowed) {
+                        runOnConnectedWatches(targets) { watch ->''')
+    replace_literal(sender, '''        return runOnConnectedWatches(watches) { watch ->
+            val companionApp''', '''        return io.rebble.libpebblecommon.pebblekit.companionResults(
+            isAllowedToCommunicate(callingPackage, watchappUUID)
+        ) { runOnConnectedWatches(watches) { watch ->
+            val companionApp''')
+    replace_literal(sender, '''            companionApp.sendMessage(data)
+        }
+''', '''            companionApp.sendMessage(data)
+        } }
+''')
+    # The base entry points have no caller identity; the onBind wrapper handles authorized calls.
+    replace_literal(sender, '''        return runOnConnectedWatches(watches) {
+            TransmissionResult.FailedNoPermissions
+        }''', '''        return emptyMap()''', expect=2)
+
+    replace_literal('util/src/androidMain/kotlin/PlatformShareLauncher.android.kt', 'type = "audio/wav"', 'type = "application/zip"')
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/PluginsHelpCard.kt',
+                    'data to watchfaces, apps, and the Index Agent. ', 'data to watchfaces and apps. ')
+    removed_permissions = r'(?:SET_INDEX_ALARMS|SEND_MESSAGES_BEEPER|WRITE_INDEX_NOTES|WRITE_INDEX_REMINDERS)'
+    edit('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/plugin/PluginPermissions.kt',
+         r'^    const val ' + removed_permissions + r' = .*\n', '', expect=4)
+    edit('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/permissions/PermissionRegistry.kt',
+         r'^        PermissionDefinition\(PluginPermissions\.' + removed_permissions + r', .*\n', '', expect=4)
+    edit('pebble/src/commonMain/kotlin/coredevices/pebble/ui/InstallReview.kt',
+         r'^    PluginPermissions\.' + removed_permissions + r' -> .*\n', '', expect=8)
+    # Permission names are strings in storage; unknown names already parse and fail closed.
+
+    nav = 'composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt'
+    remove_kotlin_block(nav, r'^                scope.launch \{(?=\n                    deepLinks.navigateToDeepLink.collect)')
+    edit(nav, r'^    val deepLinks: CoreDeepLinkHandler = koinInject\(\)\n', '')
+    replace_literal(nav, '''        composable<CommonRoutes.BugReport>(
+            deepLinks = listOf(
+                NavDeepLink("pebblecore://deep-link/bug-report?pebble={pebble}&context={context}&text={text}")
+            )
+        ) {''', '''        composable<CommonRoutes.BugReport> {''')
+    for path in ('composeApp/src/androidMain/kotlin/coredevices/coreapp/MainActivity.kt',
+                 'composeApp/src/iosMain/kotlin/coredevices/coreapp/IOSDelegateShortcuts.kt',
+                 'composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt'):
+        edit(path, r'^import coredevices.coreapp.ui.navigation.CoreDeepLinkHandler\n', '')
+    activity = 'composeApp/src/androidMain/kotlin/coredevices/coreapp/MainActivity.kt'
+    edit(activity, r'^    private val coreDeepLinkHandler: CoreDeepLinkHandler by inject\(\)\n', '')
+    edit(activity, r'^            coreDeepLinkHandler.handle\(it\)\n', '')
+    edit('composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt', r'^    singleOf\(::CoreDeepLinkHandler\)\n', '')
+    (APP / 'composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandler.kt').unlink()
+    dead_test = APP / 'composeApp/src/commonTest/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandlerTest.kt'
+    if sha256(dead_test) != 'cd116f99cce317aa67d5e339cc2769e2c663899333fd7f70b3d4a091c4286e42':
+        raise ApplyError('Core deep-link tests changed; review removed routes')
+    dead_test.unlink()
+
+    source_ui = 'pebble/src/commonMain/kotlin/coredevices/pebble/ui/AppstoreSettingsScreen.kt'
+    replace_literal(source_ui, '''parsedUrl.protocolOrNull in setOf(URLProtocol.HTTP, URLProtocol.HTTPS)''',
+                    '''parsedUrl.protocolOrNull == URLProtocol.HTTPS''')
+    replace_literal(source_ui, 'label = { Text("Source URL") }', 'label = { Text("Source URL (HTTPS)") }')
+    deep = 'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt'
+    replace_literal(deep, '''            if (name.isBlank() || url.isBlank()) return null''',
+                    '''            if (name.isBlank() || !coredevices.pebble.services.validSourceUrl(url)) return null''')
+    dao = 'util/src/commonMain/kotlin/coredevices/database/AppstoreSource.kt'
+    replace_literal(dao, '    @Query("SELECT * FROM AppstoreSource")', '''    @Query("UPDATE AppstoreSource SET url = 'https://' || substr(url, 8) WHERE lower(substr(url, 1, 7)) = 'http://'")
+    suspend fun upgradeHttpSources(): Int
+
+    @Query("SELECT * FROM AppstoreSource")''')
+    sources = 'pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreSources.kt'
+    replace_literal(sources, '''        val current = appstoreSourceDao.getAllSources().first()''', '''        // Idempotent: each persisted HTTP row is upgraded once, keeping its id and settings.
+        if (appstoreSourceDao.upgradeHttpSources() > 0) appstoreCache.clearCache()
+        val current = appstoreSourceDao.getAllSources().first()''')
+
+
+    tracker = 'pebble/src/commonMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateUiTracker.kt'
+    replace_literal(tracker, '    fun updateWatchNow(libPebble: LibPebble, identifier: String)',
+                    '    fun updateWatchNow(libPebble: LibPebble, identifier: String, expectedVersion: String? = null)')
+    replace_literal(tracker, 'override fun updateWatchNow(libPebble: LibPebble, identifier: String)',
+                    'override fun updateWatchNow(libPebble: LibPebble, identifier: String, expectedVersion: String?)')
+    replace_literal(tracker, 'if (update !is FirmwareUpdateCheckResult.FoundUpdate) {',
+                    'if (update !is FirmwareUpdateCheckResult.FoundUpdate ||\n            (expectedVersion != null && update.version.stringVersion != expectedVersion)) {')
+    replace_literal(tracker, '''            showUpdateAction = true,
+''', '''            showUpdateAction = true,
+            version = update.version.stringVersion,
+''')
+    replace_literal(tracker, 'private fun notify(title: String, body: String, key: Int, identifier: PebbleIdentifier, showUpdateAction: Boolean)',
+                    'private fun notify(title: String, body: String, key: Int, identifier: PebbleIdentifier, showUpdateAction: Boolean, version: String? = null)')
+    replace_literal(tracker, 'notifyFirmwareUpdate(appContext, title, body, key, identifier, showUpdateAction)',
+                    'notifyFirmwareUpdate(appContext, title, body, key, identifier, showUpdateAction, version)')
+    # All expect/actual declarations carry the advertised version to the Android PendingIntent.
+    for path in (tracker,
+                 'pebble/src/androidMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateUiTracker.android.kt',
+                 'pebble/src/iosMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateUiTracker.ios.kt'):
+        replace_literal(path, '    showUpdateAction: Boolean,\n)', '    showUpdateAction: Boolean,\n    version: String?,\n)')
+    android_tracker = 'pebble/src/androidMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateUiTracker.android.kt'
+    edit(android_tracker, r'^import coredevices.pebble.RealPebbleDeepLinkHandler.Companion.updateNowUri\n', '')
+    edit(android_tracker, r'^import android.app.PendingIntent.FLAG_MUTABLE\n', '')
+    edit(android_tracker, r'^import android.app.PendingIntent.FLAG_UPDATE_CURRENT\n', '')
+    edit(android_tracker, r'^    val updatePhoneIntent = context.packageManager.getLaunchIntentForPackage\(context.packageName\)\n(?:.*\n)*?(?=    val builder = NotificationCompat.Builder)', '''    val broadcastIntent = Intent(context, UpdateActionReceiver::class.java).apply {
+        // A unique identity per watch and advertised version prevents another offer replacing it.
+        data = android.net.Uri.Builder().scheme("orb-internal").authority("firmware")
+            .appendPath(identifier.asString).appendPath(version.orEmpty()).build()
+        putExtra(EXTRA_WATCH_IDENTIFIER, identifier.asString)
+        putExtra(EXTRA_VERSION, version)
+    }
+    val updateIntent = PendingIntent.getBroadcast(context, 0, broadcastIntent, PendingIntent.FLAG_IMMUTABLE)
+''')
+    replace_literal(android_tracker, 'updatePhonePendingIntent', 'updateIntent')
+    replace_literal(android_tracker, 'updateIntentWatch', 'updateIntent')
+    replace_literal(android_tracker, '.setShowsUserInterface(true)', '.setShowsUserInterface(false)')
+    replace_literal(android_tracker, 'private const val EXTRA_WATCH_IDENTIFIER = "IDENTIFIER"',
+                    'private const val EXTRA_WATCH_IDENTIFIER = "IDENTIFIER"\nprivate const val EXTRA_VERSION = "VERSION"')
+    replace_literal(android_tracker, '''        val identifier = intent.getStringExtra(EXTRA_WATCH_IDENTIFIER)''',
+                    '''        val version = intent.getStringExtra(EXTRA_VERSION) ?: return
+        val identifier = intent.getStringExtra(EXTRA_WATCH_IDENTIFIER)''')
+    replace_literal(android_tracker, 'firmwareUpdateUiTracker.updateWatchNow(libPebble, identifier)',
+                    'firmwareUpdateUiTracker.updateWatchNow(libPebble, identifier, version)')
+    replace_literal(android_tracker, 'Firmware udpate notifications', 'Firmware update notifications')
+
+    preview = 'pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt'
+    replace_literal(preview, '''            identifier: String
+        ) {''', '''            identifier: String,
+            expectedVersion: String?,
+        ) {''')
+    replace_literal(preview, '''    val storeSourceDao = object : AppstoreSourceDao {''', '''    val storeSourceDao = object : AppstoreSourceDao {
+        override suspend fun upgradeHttpSources(): Int = 0''')
+    replace_literal(ws, '''                eval("$js._onClose($code, ${Json.encodeToString(reason?.message.orEmpty())}, true)")''',
+                    '''                if (overflow.value) fail()
+                else eval("$js._onClose($code, ${Json.encodeToString(reason?.message.orEmpty())}, true)")''')
+    # The dialog and deep-link path enforce the same HTTPS-only source policy.
+    replace_literal(source_ui, '''    val parsedUrl = parseUrl(normalizedUrl)
+    // Feed urls are concatenated into request paths, so anything past the path is a broken source.
+    val urlValid = parsedUrl != null &&
+            parsedUrl.protocolOrNull == URLProtocol.HTTPS &&
+            parsedUrl.encodedQuery.isEmpty() &&
+            parsedUrl.fragment.isEmpty() &&
+            normalizedUrl !in existingUrls''', '''    val urlValid = coredevices.pebble.services.validSourceUrl(normalizedUrl) &&
+            normalizedUrl !in existingUrls''')
+    # Staged catalog language downloads use the same owned-temp-file lifecycle as URL installs.
+    repository = 'pebble/src/commonMain/kotlin/coredevices/pebble/services/LanguagePackRepository.kt'
+    replace_literal(repository, 'val directory = getLockerPBWCacheDirectory(appContext)',
+                    'val directory = io.rebble.libpebblecommon.web.getFirmwareDownloadDirectory(appContext)')
+    replace_literal(repository, 'val path = Path(directory, "language.pbl")',
+                    'val path = Path(directory, "download-${kotlin.uuid.Uuid.random()}.pbl")')
+    replace_literal(lang, 'if (sideloadPath == null) io.rebble.libpebblecommon.web.discardFirmwareDownload(path)',
+                    'firmwareDownloader.discardDownload(path)')
+
+    socket_test = 'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/js/WebSocketManagerTest.kt'
+    replace_literal(socket_test, '    private val internet =', '    @Test\n    fun overflowingTheOutgoingQueueReportsErrorAndCloses() = runTest {\n        val client = HttpClient(MockEngine { awaitCancellation() }) { install(WebSockets) }\n        val evals = mutableListOf<String>()\n        val manager = WebSocketManager(this, { evals.add(it) }, client, Uuid.random(), internet, { _, _, _, _, _ -> })\n        manager.dispatch("createInstance", listOf("wss://stream.example.com/", ""))\n        runCurrent()\n        repeat(65) { manager.dispatch("send", listOf(1, "frame", false)) }\n        awaitSockets()\n        assertEquals(listOf("$INSTANCE._onError()", ABNORMAL_CLOSE), evals)\n        client.close()\n    }\n\n    private val internet =')
+
+    # A companion removed by an app update must lose its persisted association too.
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/permissions/AppPermissions.kt',
+                    '        val all = requested.all', '        val all = requested.all\n        val removedCompanions = dao.getByAppUuid(appUuid).map { it.permission }.filter {\n            permissionOf(it) == PluginPermissions.PEBBLEKIT_2 && it !in all\n        }\n        if (removedCompanions.isNotEmpty()) dao.deleteByAppUuidAndPermissions(appUuid, removedCompanions)')
+
+    edit(deep, r'^        fun updateNowUri\(identifier: PebbleIdentifier\): Uri = .*\n', '')
+    replace_literal(deep, 'SHOW_WATCHES_HOST -> handleShowWatches(uri.path)', 'SHOW_WATCHES_HOST -> handleShowWatches()')
+    replace_literal(deep, 'private fun handleShowWatches(path: String?)', 'private fun handleShowWatches()')
+
+    replace_literal(lang, '        if (_state.value !is LanguagePackInstallState.Idle) {\n            return\n        }', '        if (_state.value !is LanguagePackInstallState.Idle) {\n            sideloadPath?.let(firmwareDownloader::discardDownload)\n            return\n        }')
+    replace_literal(lang, '                firmwareDownloader.discardDownload(path)\n            }\n        }\n    }\n}', '                firmwareDownloader.discardDownload(path)\n            }\n        }.invokeOnCompletion {\n            // Also covers a connection scope cancelled before the install coroutine starts.\n            sideloadPath?.let(firmwareDownloader::discardDownload)\n        }\n    }\n}')
 
 def fit_delegate_call() -> None:
     """Core passes PebbleAppDelegate's dependencies positionally; Orb's removals leave 18."""
