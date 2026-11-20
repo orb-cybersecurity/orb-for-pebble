@@ -6,6 +6,29 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConfigPageDocumentTest {
+    @Test fun earlyOpaqueMessagesPinTheFirstDataDocumentBeforeCommitVisible() {
+        val raw = "data:text/html,<p>Réglages</p>\n"
+        val canonical = "data:text/html,%3Cp%3ER%C3%A9glages%3C/p%3E%0A"
+        val document = ConfigPageDocument(raw)
+        assertFalse(document.accepts("null", false, canonical))
+        assertEquals(raw, document.expectedUrl)
+        assertTrue(document.accepts("null", true, canonical))
+        assertEquals(canonical, document.expectedUrl)
+        assertFalse(document.accepts("null", true, "data:text/html,other"))
+        assertEquals(canonical, document.expectedUrl)
+        assertFalse(document.accepts("https://other.example", true, canonical))
+    }
+
+    @Test fun opaqueDataMessagesCannotTakeOverAnHttpDocument() {
+        val page = "https://config.example/settings"
+        val document = ConfigPageDocument(page)
+        assertFalse(document.accepts("null", true, "data:text/html,other"))
+        assertEquals(page, document.expectedUrl)
+        assertTrue(document.accepts("https://config.example", true, page))
+        assertFalse(document.accepts("null", true, page))
+        assertFalse(document.accepts("https://other.example", true, "https://other.example/"))
+    }
+
     @Test fun firstCommittedDataUrlPinsTheCanonicalFormAndCannotBeReplaced() {
         val raw = "data:text/html,<p>café</p>"
         val canonical = "data:text/html,%3Cp%3Ecaf%C3%A9%3C/p%3E"

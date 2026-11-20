@@ -3176,7 +3176,9 @@ import kotlinx.atomicfu.locks.synchronized\
             context.contentResolver.openInputStream(uri.toUri())
                 ?.use { BitmapFactory.decodeStream(it) }\
 """,
-        '            io.rebble.libpebblecommon.imaging.boundedImage(context, uri.toUri())?.bitmap',
+        '''            io.rebble.libpebblecommon.imaging.readImageWithTimeout { resources ->
+                io.rebble.libpebblecommon.imaging.boundedImage(context, uri.toUri(), resources)
+            }?.bitmap''',
     )
     replace_literal(
         'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/music/AndroidSystemMusicControl.kt',
@@ -5438,10 +5440,7 @@ import android.database.Cursor""",
         coredevices.pebble.config.configPageMayUseBridge(expectedUrl, origin.toString(), mainFrame, url)""",
         """    val origins = setOf("*")
     fun accepts(origin: Uri, mainFrame: Boolean): Boolean {
-        // A top-frame message can arrive before onPageCommitVisible; its document URL is final.
-        if (mainFrame && coredevices.pebble.config.configPageOrigin(url.orEmpty()) ==
-            coredevices.pebble.config.configPageOrigin(origin.toString())) document.recordInitialLoad(url)
-        return coredevices.pebble.config.configPageMayUseBridge(document.expectedUrl, origin.toString(), mainFrame, url)
+        return document.accepts(origin.toString(), mainFrame, url)
     }""",
     )
     replace_literal('pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt', 'configPageCsp(network.domains, expectedUrl)', 'configPageCsp(network.domains, document.expectedUrl)')
@@ -5762,6 +5761,13 @@ def fix_round6_findings() -> None:
 
 ''', '')
     replace_literal(runner, 'kotlinx.io.files.Path(jsUrl)', 'jsPath')
+    replace_literal(runner, '            super.onPageStarted(view, url, favicon)',
+        '            super.onPageStarted(view, url, favicon)\n'
+        '            if (url?.startsWith(STARTUP_URL) == true) appScriptRequest.rearm()')
+    music = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/music/AndroidSystemMusicControl.kt'
+    replace_literal(music, 'private fun MediaMetadata.albumArtBitmap()', 'private suspend fun MediaMetadata.albumArtBitmap()')
+    replace_literal(music, 'private fun decodeArtUri(', 'private suspend fun decodeArtUri(')
+
 
     source_ui = 'pebble/src/commonMain/kotlin/coredevices/pebble/ui/AppstoreSettingsScreen.kt'
     replace_literal(source_ui, '    private val pebbleWebServices: PebbleWebServices,',
@@ -5792,18 +5798,23 @@ def fix_round6_findings() -> None:
     provider = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleKitProvider.kt'
     replace_literal(provider, 'import kotlinx.coroutines.flow.Flow',
         '''import io.rebble.libpebblecommon.permissions.AppPermissions
+import io.rebble.libpebblecommon.permissions.PermissionStatus
 import io.rebble.libpebblecommon.permissions.permissionOf
 import io.rebble.libpebblecommon.plugin.PluginPermissions
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow''')
     replace_literal(provider, '''      getConnectedWatches().distinctUntilChanged().onEach {''',
         '''      val scope = getKoin().get<io.rebble.libpebblecommon.di.LibPebbleCoroutineScope>()
-      val grants = getKoin().get<AppPermissions>().permissionDecisions().map { rows ->
-         rows.filter { permissionOf(it.permission) == PluginPermissions.PEBBLEKIT_2 && it.granted == true }
+      getKoin().get<AppPermissions>().statuses(null).map { statuses ->
+         statuses.filter { permissionOf(it.permission) == PluginPermissions.PEBBLEKIT_2 &&
+            it.status in setOf(PermissionStatus.Granted, PermissionStatus.AllowedAutomatically) }
             .map { it.appUuid to it.permission }.toSet()
-      }.distinctUntilChanged()
-      combine(getConnectedWatches().distinctUntilChanged(), grants) { watches, allowed -> watches to allowed }
-         .distinctUntilChanged().onEach {''')
+      }.distinctUntilChanged().onEach {
+         // The authority root reaches both connectedWatches and activeApp/<serial> observers.
+         context?.let { ctx -> ctx.contentResolver.notifyChange(
+            Uri.parse("content://${ctx.packageName}.pebblekit"), null) }
+      }.launchIn(scope)
+      getConnectedWatches().distinctUntilChanged().onEach {''')
     replace_literal(provider, '''      }.launchIn(getKoin().get<io.rebble.libpebblecommon.di.LibPebbleCoroutineScope>())''',
         '''      }.launchIn(scope)
       watchManager.watches.flatMapLatest { watches ->

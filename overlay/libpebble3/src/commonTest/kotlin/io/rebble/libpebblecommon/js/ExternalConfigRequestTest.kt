@@ -28,6 +28,18 @@ class ExternalConfigRequestTest {
         assertFalse(request.consume(state))
     }
 
+    @Test fun expiredExternalCallbacksLeaveTheInAppRequestUsable() {
+        val time = kotlin.time.TestTimeSource()
+        val request = ExternalConfigRequest(time)
+        val state = request.begin()
+        time += kotlin.time.Duration.parse("12m")
+        assertFalse(request.consume("stale-or-unrelated"))
+        assertFalse(request.consume(state))
+        assertFalse(request.consume(state))
+        assertTrue(request.consume(state, external = false))
+        assertFalse(request.consume(state, external = false))
+    }
+
     @Test fun callbacksMustBelongToAnOutstandingSessionAndAreSingleUse() {
         val first = ExternalConfigRequest()
         val second = ExternalConfigRequest()

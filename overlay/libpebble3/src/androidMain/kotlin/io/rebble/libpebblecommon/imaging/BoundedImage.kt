@@ -4,13 +4,31 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.CancellationSignal
+import java.io.Closeable
+import java.io.InputStream
+
+/** Resource URIs may be compressed; only content providers support cancellable descriptor opens. */
+internal fun openImageStream(context: Context, uri: Uri, resources: ImageReadResources): Pair<InputStream, Long>? {
+    if (uri.scheme == "android.resource") {
+        return context.contentResolver.openInputStream(uri)?.let { resources.track(it) to -1L }
+    }
+    if (uri.scheme != "content") return null
+    val signal = CancellationSignal()
+    resources.track(Closeable { signal.cancel() })
+    val descriptor = context.contentResolver.openAssetFileDescriptor(uri, "r", signal)
+        ?.let { resources.track(it) } ?: return null
+    val length = descriptor.length.takeIf { it >= 0 } ?: descriptor.parcelFileDescriptor.statSize
+    return resources.track(descriptor.createInputStream()) to length
+}
 
 internal data class ImageSnapshot(val bytes: ByteArray, val bitmap: Bitmap, val width: Int, val height: Int)
-internal fun boundedImage(context: Context, uri: Uri, resources: ImageReadResources? = null): ImageSnapshot? {
+internal fun boundedImage(context: Context, uri: Uri, resources: ImageReadResources): ImageSnapshot? {
     if (uri.scheme != "content" && uri.scheme != "android.resource") return null
     return try {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { source ->
-            resources?.track(source)
+        val (stream, length) = openImageStream(context, uri, resources) ?: return null
+        if (length > MAX_ENCODED_IMAGE_BYTES) return null
+        val bytes = stream.use { source ->
             val sink = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(8192)
             while (true) {
@@ -20,7 +38,7 @@ internal fun boundedImage(context: Context, uri: Uri, resources: ImageReadResour
                 sink.write(buffer, 0, count)
             }
             sink.toByteArray()
-        } ?: return null
+        }
         if (bytes.size > MAX_ENCODED_IMAGE_BYTES) return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)

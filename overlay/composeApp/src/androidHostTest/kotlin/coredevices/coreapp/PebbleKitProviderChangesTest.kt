@@ -5,6 +5,13 @@ package coredevices.coreapp
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import io.rebble.libpebblecommon.LibPebbleConfig
+import io.rebble.libpebblecommon.WatchConfigFlow
+import io.rebble.libpebblecommon.database.dao.LockerAppPermissionDao
+import io.rebble.libpebblecommon.permissions.InstalledApps
+import io.rebble.libpebblecommon.permissions.PermissionPolicy
+import io.rebble.libpebblecommon.permissions.PermissionSubject
+import io.rebble.libpebblecommon.permissions.RunningApps
 import io.rebble.libpebblecommon.connection.FakeConnectedDevice
 import io.rebble.libpebblecommon.connection.LibPebble
 import io.rebble.libpebblecommon.connection.PebbleDevice
@@ -17,6 +24,8 @@ import io.rebble.libpebblecommon.permissions.pebbleKit2Key
 import io.rebble.libpebblecommon.services.FirmwareVersion
 import io.rebble.libpebblecommon.services.WatchInfo
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.koin.dsl.koinApplication
@@ -28,8 +37,10 @@ import kotlin.uuid.Uuid
 
 /** Exercise the provider's real collectors, with only the OS boundary and inputs replaced. */
 class PebbleKitProviderChangesTest {
-    @Test fun grantsAndRunningAppsNotifyOnlySerialFreeProtocolUris() = runTest {
+    @Test fun effectiveAccessWatchesAndRunningAppsNotifyOnlySerialFreeProtocolUris() = runTest {
         val pkg = "com.orbcybersecurity.orb"
+        val rootUri = Mockito.mock(Uri::class.java)
+        Mockito.`when`(rootUri.toString()).thenReturn("content://$pkg.pebblekit")
         val connectedUri = Mockito.mock(Uri::class.java)
         val activeUri = Mockito.mock(Uri::class.java)
         Mockito.`when`(connectedUri.toString()).thenReturn("content://$pkg.pebblekit/connectedWatches")
@@ -55,8 +66,16 @@ class PebbleKitProviderChangesTest {
         val lib = Mockito.mock(LibPebble::class.java)
         Mockito.`when`(lib.watches).thenReturn(watches)
         val decisions = MutableStateFlow<List<LockerAppPermission>>(emptyList())
-        val permissions = Mockito.mock(AppPermissions::class.java)
-        Mockito.`when`(permissions.permissionDecisions()).thenReturn(decisions)
+        val subjects = MutableStateFlow<Map<Uuid, PermissionSubject>>(emptyMap())
+        val config = MutableStateFlow(LibPebbleConfig())
+        val dao = Mockito.mock(LockerAppPermissionDao::class.java)
+        Mockito.`when`(dao.allFlow()).thenReturn(decisions)
+        val installed = object : InstalledApps {
+            override fun subjectsOf(appUuids: Set<Uuid>) = subjects.map { all -> all.filterKeys { it in appUuids } }
+            override fun pluginPermissions() = flowOf(emptyMap<String, io.rebble.libpebblecommon.permissions.PluginDefinedPermission>())
+        }
+        val permissions = AppPermissions(dao, installed, WatchConfigFlow(config), kotlin.time.Clock.System,
+            RunningApps(lib), LibPebbleCoroutineScope(backgroundScope.coroutineContext))
         val koin = koinApplication { modules(module {
             single<LibPebble> { lib }
             single { permissions }
@@ -70,21 +89,54 @@ class PebbleKitProviderChangesTest {
         val uris = Mockito.mockStatic(Uri::class.java)
         try {
             contract.`when`<Uri> { contractClass.getMethod("getContentUri", String::class.java).invoke(null, pkg) }.thenReturn(connectedUri)
+            uris.`when`<Uri> { Uri.parse("content://$pkg.pebblekit") }.thenReturn(rootUri)
             uris.`when`<Uri> { Uri.parse("content://$pkg.pebblekit/activeApp") }.thenReturn(activeUri)
             provider.initialize()
             runCurrent()
             notifications.clear()
             val grant = LockerAppPermission(Uuid.random(), pebbleKit2Key("companion.example"), true, 0)
+            subjects.value = mapOf(grant.appUuid to PermissionSubject(grant.appUuid, legacy = false))
             decisions.value = listOf(grant)
             runCurrent()
-            assertEquals(listOf(connectedUri.toString()), notifications)
+            assertEquals(listOf(rootUri.toString()), notifications)
             notifications.clear()
-            decisions.value = listOf(grant.copy(lastUsedAtMs = 42))
+            decisions.value = listOf(grant.copy(lastUsedAtMs = 42, askedAtMs = 42))
             runCurrent()
             assertEquals(emptyList(), notifications)
             decisions.value = listOf(grant.copy(granted = false))
             runCurrent()
-            assertEquals(listOf(connectedUri.toString()), notifications)
+            assertEquals(listOf(rootUri.toString()), notifications)
+            notifications.clear()
+            // A legacy declaration can precede its locker entry, with no explicit grant.
+            val legacy = LockerAppPermission(Uuid.random(), pebbleKit2Key("legacy.example"), null, 0)
+            decisions.value = listOf(legacy)
+            runCurrent()
+            assertEquals(emptyList(), notifications)
+            subjects.value = subjects.value + (legacy.appUuid to PermissionSubject(legacy.appUuid, legacy = true))
+            runCurrent()
+            assertEquals(listOf(rootUri.toString()), notifications)
+            notifications.clear()
+            config.value = config.value.copy(watchConfig = config.value.watchConfig.copy(askLegacyAppsForPermissions = true))
+            runCurrent()
+            assertEquals(listOf(rootUri.toString()), notifications)
+            notifications.clear()
+            decisions.value = listOf(legacy.copy(askedAtMs = 100, lastUsedAtMs = 100))
+            runCurrent()
+            assertEquals(emptyList(), notifications)
+            config.value = config.value.copy(watchConfig = config.value.watchConfig.copy(permissionPolicy = PermissionPolicy.NeverAsk))
+            runCurrent()
+            assertEquals(listOf(rootUri.toString()), notifications)
+            notifications.clear()
+            // Explicit -> automatic permission changes keep the same effectively allowed set.
+            decisions.value = listOf(legacy.copy(granted = true))
+            runCurrent()
+            assertEquals(emptyList(), notifications)
+            decisions.value = listOf(legacy)
+            runCurrent()
+            assertEquals(emptyList(), notifications)
+            subjects.value = emptyMap()
+            runCurrent()
+            assertEquals(listOf(rootUri.toString()), notifications)
             notifications.clear()
             running.value = Uuid.random()
             runCurrent()

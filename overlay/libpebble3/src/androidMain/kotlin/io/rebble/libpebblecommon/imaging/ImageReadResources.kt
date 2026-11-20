@@ -33,6 +33,10 @@ internal class ImageReadResources : Closeable {
     }
 }
 
+// One shared, elastic IO view: uncooperative providers can pin at most two workers,
+// without consuming the general IO dispatcher's parallelism budget.
+private val imageReads = Dispatchers.IO.limitedParallelism(2)
+
 /** A blocking provider must not hold up the serial consumer after its deadline. */
 internal suspend fun <T> readImageWithTimeout(
     timeoutMs: Long = 2_000,
@@ -40,13 +44,16 @@ internal suspend fun <T> readImageWithTimeout(
 ): T? = withTimeoutOrNull(timeoutMs) {
     suspendCancellableCoroutine { continuation ->
         val resources = ImageReadResources()
-        continuation.invokeOnCancellation { resources.close() }
         // Deliberately independent of the caller's Job: a provider may ignore cancellation
         // during open(). Any descriptor it eventually returns is closed by track().
-        CoroutineScope(Dispatchers.IO).launch {
+        val job = CoroutineScope(imageReads).launch {
             val result = try { read(resources) } catch (_: Exception) { null }
             finally { resources.close() }
             continuation.resume(result)
+        }
+        continuation.invokeOnCancellation {
+            job.cancel() // Discard reads still queued behind a hung provider.
+            resources.close()
         }
     }
 }

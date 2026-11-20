@@ -11,7 +11,7 @@ internal class ExternalConfigRequest(private val time: TimeSource = TimeSource.M
     fun clear() { pending.value = null }
     fun consume(state: String?, external: Boolean = true): Boolean {
         val request = pending.value ?: return false
-        if (external && request.started.elapsedNow().inWholeMinutes >= 10) { pending.compareAndSet(request, null); return false }
+        if (external && request.started.elapsedNow().inWholeMinutes >= 10) return false
         return state == request.state && pending.compareAndSet(request, null)
     }
 }
