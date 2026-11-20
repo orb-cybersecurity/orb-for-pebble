@@ -129,6 +129,12 @@ watchapps you install can use their own HTTPS hosts.
 App store pages open in your browser. Watch apps you install run their own
 JavaScript on the phone and can contact their own servers, as on every Pebble app.
 
+Settings pages keep saved local storage within their original web origin. Legacy
+save callbacks must come from that origin's main page; a callback bound to the
+open configuration request can also return from a sign-in redirect. Imported
+watchapp and firmware archives reject JSON metadata larger than 1 MiB and text
+files larger than 8 MiB.
+
 Outbound web connections use HTTPS, with system CAs only; user-installed CAs are
 not trusted. Orb blocks plain HTTP for itself, watchapps and their settings pages.
 The LAN developer server is an exception: it is off by default and uses an

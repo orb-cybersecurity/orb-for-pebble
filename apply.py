@@ -3936,6 +3936,174 @@ currentVersion = if (!watch.runningFwVersion.isRecovery) {
     replace_literal('pebble/src/iosMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.ios.kt', 'logger.e(e) { "Error writing file for $uri" }', 'logger.e { "File import failed" }', expect=1)
 
 
+def fix_verified_merge_gate() -> None:
+    screen = 'pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt'
+    android = 'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt'
+    ios = 'pebble/src/iosMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.ios.kt'
+    pkjs = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/PKJSApp.kt'
+    runner = 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt'
+
+    # The message listener saves a snapshot on Main. Updating native Storage.length is unnecessary.
+    replace_literal(android, """\
+    val localStorageInterface = WebViewJSLocalStorageInterface("$uuid-config", AppContext(context)) {
+        runBlocking(Dispatchers.Main) {
+            evaluateJavascript(
+                it,
+                null
+            )
+        }
+    }""", """\
+    val localStorageInterface = WebViewJSLocalStorageInterface(
+        "$uuid-config", AppContext(context), coredevices.pebble.config.configStorageLengthChanged,
+    )""", expect=1)
+    for path in (screen, android, ios):
+        replace_literal(path, 'fun persistLocalStorage(webView: NativeWebView)',
+                        'suspend fun persistLocalStorage(webView: NativeWebView)', expect=1)
+    replace_literal(screen, "        // Leaves the page for the linked app's page in the locker. Called on the main thread, which\n        // persistLocalStorage blocks on.",
+                    "        // Save storage before leaving for the linked app's page in the locker.", expect=1)
+    replace_literal(android, '    runBlocking(Dispatchers.Main) {', '    withContext(Dispatchers.Main) {', expect=1)
+    replace_literal(android, 'import kotlinx.coroutines.runBlocking\n', '', expect=1)
+    # PKJS still uses the Java bridge thread, but neither length updates nor restore need to block it.
+    replace_literal(runner, """\
+    private val localStorageInterface = WebViewJSLocalStorageInterface(appInfo.uuid, appContext) {
+        runBlocking(Dispatchers.Main) {
+            webView?.evaluateJavascript(
+                it,
+                null
+            )
+        }
+    }""", """\
+    private val localStorageInterface = WebViewJSLocalStorageInterface(appInfo.uuid, appContext) { js ->
+        nativeEvals.trySend(js)
+    }""", expect=1)
+    replace_literal(runner, '    private fun restoreLocalStorage() {\n        runBlocking(Dispatchers.Main) {',
+                    '    private suspend fun restoreLocalStorage() {\n        withContext(Dispatchers.Main) {', expect=1)
+
+    # End return_to with the separator used by pages that append encodeURIComponent(settings).
+    replace_literal(pkjs, '"pebblejs://close?orb_state=$state"', '"pebblejs://close?orb_state=$state#"', expect=1)
+    replace_literal(pkjs, '    fun closeExternalConfig(state: String?, data: String): Boolean {',
+                    '    fun consumeConfigState(state: String): Boolean = externalConfig.consume(state)\n\n'
+                    '    fun closeExternalConfig(state: String?, data: String): Boolean {', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageSession.kt',
+                    '    /** Whatever the page put in its close URL. */',
+                    '    fun consumeConfigState(state: String): Boolean = pkjs?.consumeConfigState(state) == true\n\n'
+                    '    /** Whatever the page put in its close URL. */', expect=1)
+    replace_literal(screen, 'import io.ktor.http.decodeURLPart',
+                    'import io.rebble.libpebblecommon.js.ConfigCloseCallback\n'
+                    'import io.rebble.libpebblecommon.js.isConfigCloseUrl\n'
+                    'import io.rebble.libpebblecommon.js.parseConfigCloseUrl', expect=1)
+    replace_literal(screen, '        val interceptor = remember {\n            SettingsRequestInterceptor(',
+                    '        val interceptor = remember(url) {\n            SettingsRequestInterceptor(\n'
+                    '                mayClose = { callback ->\n'
+                    '                    coredevices.pebble.config.configPageMayComplete(\n'
+                    '                        url, state.lastLoadedUrl, true, callback.state,\n'
+                    '                    ) { session?.consumeConfigState(it) == true }\n'
+                    '                },', expect=1)
+    replace_literal(screen, 'private class SettingsRequestInterceptor(\n',
+                    'internal class SettingsRequestInterceptor(\n'
+                    '    private val mayClose: (ConfigCloseCallback) -> Boolean,\n', expect=1)
+    replace_literal(screen, '    private val PREFIX = "pebblejs://close" // non-compliant intercept for close, because some apps just use "close"\n', '', expect=1)
+    replace_literal(screen, '        if (!request.url.startsWith(PREFIX)) {',
+                    '        if (!isConfigCloseUrl(request.url)) {', expect=1)
+    replace_literal(screen, "        // Matches PREFIX followed by #, /, or /? \n"
+                    r'''        // Ideally all apps would send pebblejs://close#param1=value1&param2=value2 but it's not the case.
+        // The original Pebble Technology Corp App did deviate from the official spec and handled these wrong cases too.
+        val closeUrlRegex = Regex("""^pebblejs://close(?:#|/\?|/)(.*)$""")
+
+        val data = closeUrlRegex.find(request.url)?.groupValues?.get(1)?.decodeURLPart()''',
+                    '''        if (!request.isForMainFrame) return WebRequestInterceptResult.Reject
+        val callback = parseConfigCloseUrl(request.url) ?: return WebRequestInterceptResult.Reject
+        if (!mayClose(callback)) return WebRequestInterceptResult.Reject
+        val data = callback.data''', expect=1)
+    replace_literal(screen, '        if (data?.isNotEmpty() == true) {', '        if (data.isNotEmpty()) {', expect=1)
+    deep_link = 'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt'
+    replace_literal(deep_link, '                val data = uri.encodedFragment ?: return false\n'
+                    '                val state = uri.getQueryParameter("orb_state") ?: return false',
+                    '                val callback = io.rebble.libpebblecommon.js.parseConfigCloseUrl(uri.toString()) ?: return false\n'
+                    '                val data = callback.data\n'
+                    '                val state = callback.state ?: return false', expect=1)
+
+    # Keep the storage's origin with it, and guard both sides of the asynchronous JS injection.
+    replace_literal(android, 'configStorage[this] = localStorageInterface',
+                    'configStorage[this] = localStorageInterface to expectedOrigin', expect=1)
+    replace_literal(android, 'java.util.WeakHashMap<WebView, WebViewJSLocalStorageInterface>()',
+                    'java.util.WeakHashMap<WebView, Pair<WebViewJSLocalStorageInterface, String?>>()', expect=1)
+    replace_literal(android, '''        val saved = configStorage[webView]?.restoreState() ?: "{}"
+        webView.evaluateJavascript("""
+            (function() {
+                // Storage is disabled inside data: URLs, which a plugin's config page is.
+                try { window.localStorage.clear(); } catch (e) { return; }
+                const localStorageData = JSON.parse(${Json.encodeToString(saved)});
+                for (const [key, value] of Object.entries(localStorageData)) {
+                    window.localStorage.setItem(key, value);
+                }
+            })();
+                """.trimIndent(), null
+        )''', '''        val (storage, origin) = configStorage[webView] ?: return@withContext
+        // evaluateJavascript targets only the main frame; data: documents have no storage origin.
+        if (!coredevices.pebble.config.configPageMayRestoreStorage(origin, webView.url, true)) return@withContext
+        webView.evaluateJavascript(
+            coredevices.pebble.config.configStorageRestoreScript(origin!!, storage.restoreState()), null,
+        )''', expect=1)
+    replace_literal(android, '''internal actual suspend fun persistLocalStorage(webView: NativeWebView) {
+    withContext(Dispatchers.Main) {
+        webView.evaluateJavascript("""
+            (function() {
+                const data = {};''', '''internal actual suspend fun persistLocalStorage(webView: NativeWebView) {
+    withContext(Dispatchers.Main) {
+        val (_, origin) = configStorage[webView] ?: return@withContext
+        if (!coredevices.pebble.config.configPageMayRestoreStorage(origin, webView.url, true)) return@withContext
+        webView.evaluateJavascript("""
+            (function() {
+                if (window !== window.top || location.origin !== ${Json.encodeToString(origin)}) return;
+                const data = {};''', expect=1)
+
+    # Bound inflated bytes before allocating strings or invoking a JSON decoder.
+    pbw = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/disk/pbw/DiskUtil.kt'
+    pbz = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/disk/pbz/DiskUtil.kt'
+    for path in (pbw, pbz):
+        replace_literal(path, 'import kotlinx.io.readString',
+                        'import io.rebble.libpebblecommon.disk.MAX_ZIP_JSON_BYTES\n'
+                        'import io.rebble.libpebblecommon.disk.readStringBounded', expect=1)
+    replace_literal(pbw, 'import kotlinx.io.RawSource',
+                    'import io.rebble.libpebblecommon.disk.MAX_ZIP_TEXT_BYTES\nimport kotlinx.io.RawSource', expect=1)
+    replace_literal(pbw, 'pbwJson.decodeFromString(source.readString())',
+                    'pbwJson.decodeFromString(source.readStringBounded(MAX_ZIP_JSON_BYTES))', expect=1)
+    replace_literal(pbw, 'source.use { it.readString() }',
+                    'source.use { it.readStringBounded(MAX_ZIP_JSON_BYTES) }', expect=1)
+    replace_literal(pbw, '.use { it.readString() }',
+                    '.use { it.readStringBounded(MAX_ZIP_TEXT_BYTES) }', expect=1)
+    replace_literal(pbz, 'it.readString()', 'it.readStringBounded(MAX_ZIP_JSON_BYTES)', expect=1)
+
+    # Never retain URL-bearing reasons, server text, exception messages or stack traces in PKJS logs.
+    xhr = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/XMLHTTPRequestManager.kt'
+    for old, category in (
+        ('logger.w { "$appUuid blocked: ${verdict.reason}" }', 'REFUSED'),
+        ('logger.w { "$appUuid blocked redirect: ${e.message}" }', 'REDIRECT_REFUSED'),
+        ('logger.e { "Request timed out: ${e.message}" }', 'TIMED_OUT'),
+        ('logger.e(e) { "Request (size ${data?.size}) failed: ${e.message}" }', 'FAILED'),
+        ('logger.e(e) { "Failed to serialize response headers: ${e.message}" }', 'HEADERS_FAILED'),
+        ('logger.e(e) { "Response has charset errors: ${e.message}. Decoding as UTF-8 with replacements" }', 'CHARSET_INVALID'),
+        ('logger.e { "Invalid response type: $responseType" }', 'RESPONSE_TYPE_INVALID'),
+        ('logger.e(e) { "Failed to read response body (type $responseType): ${e.message}" }', 'BODY_FAILED'),
+    ):
+        replace_literal(xhr, old, 'logger.w { pkjsNetworkLog(PkjsNetworkLogCategory.' + category + ', url) }', expect=1)
+    replace_literal(xhr, 'logger.v { "XHR Response: ${response.status.value} ${response.status.description}" }',
+                    'logger.v { "XHR response status=${response.status.value}" }', expect=1)
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+                    'logger.w { "watchapp websocket failed" }',
+                    'logger.w { pkjsNetworkLog(PkjsNetworkLogCategory.FAILED, url) }', expect=1)
+    replace_literal(runner, '''            logger.e {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    "Error loading page: ${error?.errorCode} ${error?.description}"
+                } else {
+                    "Error loading page: ${error?.toString()}"
+                }
+            }''', '            logger.w { pkjsNetworkLog(PkjsNetworkLogCategory.PAGE_FAILED, request?.url?.toString().orEmpty()) }', expect=1)
+    replace_literal(runner, 'logger.w { "Blocking access to file: ${url.path}" }',
+                    'logger.w { pkjsNetworkLog(PkjsNetworkLogCategory.REFUSED, url.toString()) }', expect=1)
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -4356,6 +4524,7 @@ def apply(extra_abis: list[str]) -> None:
     remove_google_fit()
     fit_delegate_call()
     harden_orb_release()
+    fix_verified_merge_gate()
 
     if extra_abis:
         edit(
