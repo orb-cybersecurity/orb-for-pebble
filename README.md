@@ -80,14 +80,13 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   because Core's update server requires an account. Older Pebble watches still
   update through Rebble. A version can be pinned under Settings → Debug after
   enabling "Show debug options".
-- **PebbleKit companions:** Watch data and app control require a stored PebbleKit2
+- **PebbleKit 2 companions:** Watch data and app control require a stored PebbleKit2
   declaration and allowed access. Queries return nothing until the companion is
   allowed: by the user, automatically for watchapps built before permissions unless
   "Ask before older apps use other permissions" is on, or with "Ask before apps use
   permissions" set to "Never". Observers can see that connected watches, the running
   watchapp, or companion access changed; no watch, app, companion or serial is
-  revealed. Classic apps need that declaration too. Classic start/stop also needs
-  Android 14 or newer and a sender that shares its identity.
+  revealed. Phone apps need PebbleKit 2. The original companion API is removed.
 - **Dictation:** Orb uses the phone's selected speech recognition service.
   System/offline dictation is not yet available on GrapheneOS. Rebble dictation
   works with a Rebble subscription; select a Rebble mode in speech settings.
@@ -217,8 +216,8 @@ and install it by hand. Nothing will then tell you about updates.
 F-Droid will follow once Orb meets F-Droid's requirement for a period of active
 development.
 
-Uninstall Core's official app or another fork before installing Orb. They declare
-the same PebbleKit providers, so Android cannot install them alongside Orb.
+Orb can be installed next to Core's official app or another fork, but only one app
+should connect to a watch at a time.
 
 ## Building
 

@@ -21,6 +21,7 @@ import zipfile
 from pathlib import Path
 
 FORBIDDEN_CLASSES = {
+    "Lio/rebble/libpebblecommon/pebblekit/classic/": "removed companion API",
     "Lcom/google/firebase/": "Firebase SDK",
     "Lcom/google/android/gms/": "Google Play services",
     "Lcom/google/android/play/": "Google Play Core",
@@ -50,24 +51,47 @@ def uleb128(data: bytes, pos: int) -> tuple[int, int]:
         shift += 7
 
 
-def dex_classes(data: bytes) -> tuple[set[str], set[str]]:
-    """Return (classes defined in this dex, every type descriptor it mentions)."""
+def dex_strings(data: bytes) -> list[str]:
+    """Read the dex string table, including dynamically registered intent actions."""
     if data[:4] != b"dex\n":
         raise ValueError("not a dex file")
-    string_count, string_off, type_count, type_off = struct.unpack_from("<IIII", data, 0x38)
-    class_count, class_off = struct.unpack_from("<II", data, 0x60)
-
-    def string(index: int) -> str:
+    string_count, string_off = struct.unpack_from("<II", data, 0x38)
+    strings = []
+    for index in range(string_count):
         (offset,) = struct.unpack_from("<I", data, string_off + 4 * index)
         _, start = uleb128(data, offset)
-        return data[start:data.index(b"\x00", start)].decode("utf-8", "replace")
+        strings.append(data[start:data.index(b"\x00", start)].decode("utf-8", "replace"))
+    return strings
 
-    types = [string(struct.unpack_from("<I", data, type_off + 4 * i)[0]) for i in range(type_count)]
+
+def dex_classes(data: bytes) -> tuple[set[str], set[str]]:
+    """Return (classes defined in this dex, every type descriptor it mentions)."""
+    strings = dex_strings(data)
+    type_count, type_off = struct.unpack_from("<II", data, 0x40)
+    class_count, class_off = struct.unpack_from("<II", data, 0x60)
+    types = [strings[struct.unpack_from("<I", data, type_off + 4 * i)[0]] for i in range(type_count)]
     defined = {
         types[struct.unpack_from("<I", data, class_off + 32 * i)[0]] for i in range(class_count)
     }
     return defined, set(types)
 
+
+def check_classes(defined: set[str], mentioned: set[str]) -> list[str]:
+    problems = []
+    for prefix, what in FORBIDDEN_CLASSES.items():
+        shipped = sorted(c for c in defined if c.startswith(prefix))
+        referenced = sorted(c for c in mentioned - defined if c.startswith(prefix))
+        if shipped:
+            problems.append(f"{len(shipped)} classes of {what}, e.g. {shipped[0]}")
+        if referenced:
+            problems.append(f"{len(referenced)} references to missing {what} classes, e.g. {referenced[0]}")
+    return problems
+
+
+def check_removed_protocol(strings) -> list[str]:
+    """Reject the retired provider authority and both static and dynamic broadcast actions."""
+    return [f"removed companion protocol: {value}" for value in sorted(set(strings))
+            if "com.getpebble.android.provider" in value or "com.getpebble.action" in value]
 
 # What Android's backup must copy for a restored phone to have Orb as it was (see
 # overlay/androidApp/src/main/res/xml/data_extraction_rules.xml), and nothing else.
@@ -209,6 +233,11 @@ def check_manifest(apk: str, defined: set[str]) -> list[str]:
     resource_names = dict(re.findall(r"^\s*resource (0x[0-9a-f]+) (\S+)", resource_dump, re.MULTILINE))
     problems += check_exported_components(manifest, application, resource_names)
     problems += check_activity_classes(manifest, defined)
+    nodes = [manifest]
+    while nodes:
+        node = nodes.pop()
+        problems += check_removed_protocol(node.attrs.values())
+        nodes.extend(node.children)
 
     def rules(attr: str, name: str) -> Node | None:
         ref = application.attrs.get(attr, "").lstrip("@")
@@ -272,7 +301,9 @@ def main() -> int:
         names = apk.namelist()
         for name in names:
             if name.startswith("classes") and name.endswith(".dex"):
-                d, m = dex_classes(apk.read(name))
+                data = apk.read(name)
+                problems += check_removed_protocol(dex_strings(data))
+                d, m = dex_classes(data)
                 defined |= d
                 mentioned |= m
         for name in names:
@@ -280,13 +311,7 @@ def main() -> int:
                 if name.startswith("lib/") and needle in name:
                     problems.append(f"native library {name}: {what}")
 
-    for prefix, what in FORBIDDEN_CLASSES.items():
-        shipped = sorted(c for c in defined if c.startswith(prefix))
-        referenced = sorted(c for c in mentioned - defined if c.startswith(prefix))
-        if shipped:
-            problems.append(f"{len(shipped)} classes of {what}, e.g. {shipped[0]}")
-        if referenced:
-            problems.append(f"{len(referenced)} references to missing {what} classes, e.g. {referenced[0]}")
+    problems += check_classes(defined, mentioned)
 
     problems += check_manifest(sys.argv[1], defined)
 

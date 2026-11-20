@@ -19,8 +19,8 @@
 <li>PebbleOS updates for watches made by Core come from Core's public releases on GitHub. Each release is checked (published SHA-256, board, version and CRCs) before it is offered. Older Pebble watches update from Rebble.</li>
 </ul>
 
-<p>Orb blocks plain HTTP for itself, watchapps and settings pages and trusts system CAs only. Classic PebbleKit currently requires PebbleKit2 companion declarations; classic start/stop also needs Android 14 or newer and a sender that shares its identity.</p>
+<p>Orb blocks plain HTTP for itself, watchapps and settings pages and trusts system CAs only. The original companion API is removed. Phone apps need PebbleKit 2, a stored companion declaration and allowed access.</p>
 
-<p>Orb cannot be installed next to the official app or another build of it.</p>
+<p>Orb can be installed next to other Pebble apps, but only one app should connect to a watch at a time.</p>
 
 <p>Orb for Pebble is not affiliated with or endorsed by Core Devices. Pebble is a trademark of Core Devices LLC; the name is used only to say which watches the app works with.</p>

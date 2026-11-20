@@ -39,7 +39,6 @@ REPLACED = {
     "util/src/commonMain/kotlin/coredevices/util/transcription/SpeechModelAvailability.kt":
         "eb27d582a32869f2bd415c3934ca0efef12de314d0943d55e4c46da39d4aefac",
     'pebble/src/androidMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.android.kt': '0feeaeb7072ca4bd3856a3febf3547af9a53340889666ede463497ad1fd2df87',
-    'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitClassicStartListeners.kt': '247f94341bb8d647a375a213ae732ad5b59ed0c1f053ebae3155ae7382b14d07',
     'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/web/FirmwareDownloader.kt': '44fba7bd14972ed37e170b1456b1435235cc99b9383d3560fe2257585594455b',
     "util/src/androidMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.android.kt":
         "4b95f649c8dd2a5e2e3c6e3a19f9c05836d64315d0a75f8aa096201ff5819d36",
@@ -86,6 +85,8 @@ REPLACED = {
 
 # Prebuilt binaries and files only they need, and Core's launcher artwork.
 REMOVED = [
+    # The original companion-app API, including its provider notifier and dictionaries.
+    "libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic",
     "cactus-native",
     "models",
     "composeApp/src/androidMain/assets/models/needle-pebble-ft-cq4.zip",
@@ -3493,28 +3494,6 @@ private fun configNetworkJs(context: Context, csp: String?) =
         'selectionArgs: Array<out String?>?',
     )
     replace_literal(
-        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitProvider.kt',
-        '        val cursor = MatrixCursor(CURSOR_COLUMN_NAMES)',
-        """\
-        if (!initializeIfNeeded()) return null
-        val callers = context?.packageManager?.getPackagesForUid(android.os.Binder.getCallingUid()).orEmpty().toList()
-        if (!kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-            io.rebble.libpebblecommon.pebblekit.PebbleKitAuthorization.associated(callers)
-        }) return null
-        val cursor = MatrixCursor(CURSOR_COLUMN_NAMES)\
-""",
-    )
-    replace_literal(
-        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitProvider.kt',
-        '        cursor.use { _ ->',
-        '        run {',
-    )
-    replace_literal(
-        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitProvider.kt',
-        '                return@use',
-        '                return@run',
-    )
-    replace_literal(
         'pebble/src/commonMain/kotlin/coredevices/pebble/account/BootConfig.kt',
         'logger.w("error decoding bootconfig", e)',
         'logger.w("error decoding boot configuration")',
@@ -4214,7 +4193,7 @@ internal actual class ConfigPageNetwork(''', expect=1)
     replace_literal(config, '    /** Android PKJS XMLHttpRequests go through the app, so their bytes are counted. */\n'
                     '    val pkjsRequestsThroughApp: Boolean = true,\n', '', expect=1)
     replace_literal(config, '            json.decodeFromString(string)', '''            val stored = json.parseToJsonElement(string)
-            val migrated = migratePkjsNetworkSetting(stored)
+            val migrated = migrateRemovedWatchSettings(stored)
             json.decodeFromJsonElement(LibPebbleConfig.serializer(), migrated).also {
                 if (migrated != stored) saveToStorage(it)
             }''', expect=1)
@@ -4649,6 +4628,7 @@ def apply(extra_abis: list[str]) -> None:
     fix_final_release_findings()
     fix_runtime_release_findings()
     fix_round6_findings()
+    remove_classic_pebblekit()
     match_permission_setting_label()
 
     if extra_abis:
@@ -5313,31 +5293,6 @@ import android.database.Cursor""",
    companion object {""",
     )
     replace_literal(
-        'libpebble3/src/androidMain/kotlin/main.kt',
-        """import io.rebble.libpebblecommon.pebblekit.classic.PebbleKitProviderNotifier
-""",
-        '',
-    )
-    replace_literal(
-        'libpebble3/src/androidMain/kotlin/main.kt',
-        """    koin.get<PebbleKitProviderNotifier>().init()
-""",
-        '',
-    )
-    replace_literal(
-        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/di/LibPebbleModule.android.kt',
-        """import io.rebble.libpebblecommon.pebblekit.classic.PebbleKitProviderNotifier
-""",
-        '',
-    )
-    replace_literal(
-        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/di/LibPebbleModule.android.kt',
-        """    single { PebbleKitProviderNotifier(get<LibPebble>(), get(), get()) }
-""",
-        '',
-    )
-    (APP / 'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitProviderNotifier.kt').unlink()
-    replace_literal(
         'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/DatalogDelivery.kt',
         'internal interface DatalogSender {',
         """internal interface DatalogSender {
@@ -5843,6 +5798,104 @@ import kotlinx.coroutines.flow.Flow''')
     replace_literal(store, 'private fun NotificationImage.decode(', 'private suspend fun NotificationImage.decode(')
     replace_literal(store, 'io.rebble.libpebblecommon.imaging.boundedImage(context, source.uri)',
         'io.rebble.libpebblecommon.imaging.readImageWithTimeout { resources ->\n                io.rebble.libpebblecommon.imaging.boundedImage(context, source.uri, resources)\n            }')
+
+
+def remove_classic_pebblekit() -> None:
+    """Remove the original companion API and retire its saved setting and permission."""
+    base = "libpebble3/src"
+    package = "kotlin/io/rebble/libpebblecommon"
+    main = f"{base}/androidMain/kotlin/main.kt"
+    module = f"{base}/androidMain/{package}/di/LibPebbleModule.android.kt"
+    for path in (main, module):
+        for name in ("PebbleKitClassicStartListeners", "PebbleKitProviderNotifier"):
+            replace_literal(path, f"import io.rebble.libpebblecommon.pebblekit.classic.{name}\n", "")
+    for name in ("PebbleKitClassicStartListeners", "PebbleKitProviderNotifier"):
+        replace_literal(main, f"    koin.get<{name}>().init()\n", "")
+    replace_literal(module, "    single { PebbleKitClassicStartListeners(get(), get(), get()) }\n", "")
+    replace_literal(module, "    single { PebbleKitProviderNotifier(get<LibPebble>(), get(), get()) }\n", "")
+    replace_literal(module, "import io.rebble.libpebblecommon.connection.LibPebble\n", "")
+    edit("pebble/src/androidMain/AndroidManifest.xml",
+         r'        <provider\n            android:authorities="com\.getpebble\.android\.provider\.basalt"\n'
+         r'            android:name="io\.rebble\.libpebblecommon\.pebblekit\.classic\.PebbleKitProvider"\n'
+         r'            tools:ignore="ExportedContentProvider"\n            android:exported="true" />\n', "")
+    # Only the removed provider needed the tools namespace.
+    replace_literal("pebble/src/androidMain/AndroidManifest.xml",
+                    '\n    xmlns:tools="http://schemas.android.com/tools"', "")
+    for source, suffix in (("commonMain", ""), ("androidMain", ".android"), ("iosMain", ".ios")):
+        path = f"{base}/{source}/{package}/connection/endpointmanager/CompanionAppLifecycleManager{suffix}.kt"
+        replace_literal(path, "    legacyPebbleKitEnabled: Boolean,\n", "")
+        if source == "commonMain":
+            replace_literal(path, "                    legacyPebbleKitEnabled = libPebbleConfigFlow.value.watchConfig.enableLegacyPebbleKit,\n", "")
+        if source == "androidMain":
+            replace_literal(path, "import io.rebble.libpebblecommon.pebblekit.classic.PebbleKitClassic\n", "")
+            replace_literal(path, "        legacyPebbleKitEnabled -> PebbleKitClassic(device, appInfo, pkjsRunning, connectionCoroutineScope)\n", "")
+
+    replace_literal(f"{base}/commonMain/{package}/LibPebbleConfig.kt",
+                    "    val enableLegacyPebbleKit: Boolean = true,\n", "")
+    remove_setting("pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt", "Legacy PebbleKit")
+    replace_literal(f"{base}/commonMain/{package}/plugin/PluginPermissions.kt",
+                    '    const val LEGACY_PEBBLEKIT = "LegacyPebbleKit"\n', "")
+    registry = f"{base}/commonMain/{package}/permissions/PermissionRegistry.kt"
+    replace_literal(registry, "        PermissionDefinition(PluginPermissions.LEGACY_PEBBLEKIT, PermissionKind.Exfiltrating),\n", "")
+    replace_literal(registry, "internal fun isLegacyImplicit(key: String, hasAndroidCompanion: Boolean): Boolean =\n"
+                    "    key in LEGACY_PKJS || permissionOf(key) == PluginPermissions.PEBBLEKIT_2 ||\n"
+                    "        (key == PluginPermissions.LEGACY_PEBBLEKIT && hasAndroidCompanion)",
+                    "internal fun isLegacyImplicit(key: String): Boolean =\n"
+                    "    key in LEGACY_PKJS || permissionOf(key) == PluginPermissions.PEBBLEKIT_2")
+    replace_literal(registry, "internal fun legacyRequested(hasPkjs: Boolean, hasAndroidCompanion: Boolean): List<String> = buildList {\n"
+                    "    if (hasPkjs) addAll(LEGACY_PKJS)\n"
+                    "    if (hasAndroidCompanion) add(PluginPermissions.LEGACY_PEBBLEKIT)\n}",
+                    "internal fun legacyRequested(hasPkjs: Boolean): List<String> =\n"
+                    "    if (hasPkjs) LEGACY_PKJS else emptyList()\n\n"
+                    "/** Retired keys can remain in saved rows or old watchapp manifests. */\n"
+                    'internal fun isRemovedPermission(key: String): Boolean = permissionOf(key) == "LegacyPebbleKit"')
+    replace_literal(registry, "fun PluginPermission.keys(): List<String> {\n",
+                    "fun PluginPermission.keys(): List<String> {\n    if (isRemovedPermission(name)) return emptyList()\n")
+    replace_literal(registry, "fun List<PluginPermission>.describesRequired(): Boolean = any { it.required != null }",
+                    "fun List<PluginPermission>.describesRequired(): Boolean = any { !isRemovedPermission(it.name) && it.required != null }")
+    requested = f"{base}/commonMain/{package}/permissions/RequestedPermissions.kt"
+    permissions = f"{base}/commonMain/{package}/permissions/AppPermissions.kt"
+    for path in (requested, permissions):
+        replace_literal(path, "    val hasAndroidCompanion: Boolean = false,\n", "")
+    for line in ("        hasAndroidCompanion = hasAndroidCompanion,\n",
+                 "    hasAndroidCompanion = companionsOf?.androidCompanion != null,\n",
+                 "        hasAndroidCompanion = companions.android != null,\n"):
+        replace_literal(requested, line, "")
+    replace_literal(requested, "legacyRequested(hasPkjs, hasAndroidCompanion)", "legacyRequested(hasPkjs)")
+    replace_literal(permissions, "    hasAndroidCompanion = androidCompanion != null,\n", "")
+    replace_literal("pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerUtil.kt",
+                    "    hasAndroidCompanion = companions.android != null,\n", "")
+    replace_literal(permissions, "legacyRequested(hasPkjs = true, hasAndroidCompanion = true)", "legacyRequested(hasPkjs = true)")
+    replace_literal(permissions, "isLegacyImplicit(permission, subject.hasAndroidCompanion)", "isLegacyImplicit(permission)")
+    # Use the existing per-app reconciliation to delete saved rows; filter them even before it runs.
+    replace_literal(permissions, "            permissionOf(it) == PluginPermissions.PEBBLEKIT_2 && it !in all",
+                    "            isRemovedPermission(it) || (permissionOf(it) == PluginPermissions.PEBBLEKIT_2 && it !in all)")
+    replace_literal(permissions, "config.disables(it.permission)", "isRemovedPermission(it.permission)", expect=3)
+    replace_literal(permissions, "config.disables(permission)", "isRemovedPermission(permission)")
+    replace_literal(permissions, "rows.filter { it.granted != null }",
+                    "rows.filter { !isRemovedPermission(it.permission) && it.granted != null }")
+    replace_literal(permissions, "/** While Legacy PebbleKit is switched off, it's never granted or listed. */\n"
+                    "private fun WatchConfig.disables(permission: String) =\n"
+                    "    permission == PluginPermissions.LEGACY_PEBBLEKIT && !enableLegacyPebbleKit\n\n", "")
+    # Filtering the retired row cannot change the exfiltration result: it has no permission kind.
+    replace_literal(permissions, "        val config = watchConfig.value\n        val rows = dao.getByAppUuid(appUuid).filterNot { isRemovedPermission(it.permission) }",
+                    "        val rows = dao.getByAppUuid(appUuid)")
+    review = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/InstallReview.kt"
+    replace_literal(review, "PluginPermissions.LEGACY_PEBBLEKIT, PluginPermissions.PEBBLEKIT_2 ->", "PluginPermissions.PEBBLEKIT_2 ->")
+    edit(review, r"^    PluginPermissions\.LEGACY_PEBBLEKIT -> .*\n", "", expect=2)
+    replace_literal(review, "import androidx.compose.material.icons.filled.Campaign\n", "")
+
+    tests = f"{base}/commonTest/{package}/permissions/AppPermissionsTest.kt"
+    replace_literal(tests, "import io.rebble.libpebblecommon.plugin.PluginPermissions.LEGACY_PEBBLEKIT\n", "")
+    replace_literal(tests, "    hasAndroidCompanion: Boolean = false,\n", "")
+    replace_literal(tests, "PermissionSubject(APP, legacy, hasAndroidCompanion, hasCompanionApp, legacyForHealth)",
+                    "PermissionSubject(APP, legacy, hasCompanionApp, legacyForHealth)")
+    for method in ("legacyPebbleKitSwitchedOffIsDeniedHiddenAndNoWayOut",
+                   "aLegacyAppKeepsPebbleKitOnlyWhenTheStoreListsAnAndroidCompanion",
+                   "anAppThatDeclaresItsPermissionsIsAskedAboutPebbleKitWhateverTheStoreSays"):
+        remove_kotlin_block(tests, rf"^    @Test\n    fun {method}\(")
+    replace_literal(tests, ", hasAndroidCompanion = true", "")
+    replace_literal(tests, ", LEGACY_PEBBLEKIT to false", "")
 
 
 def match_permission_setting_label() -> None:

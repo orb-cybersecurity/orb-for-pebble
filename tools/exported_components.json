@@ -45,15 +45,6 @@
   },
   {
     "kind": "provider",
-    "name": "io.rebble.libpebblecommon.pebblekit.classic.PebbleKitProvider",
-    "permission": "",
-    "readPermission": "",
-    "writePermission": "",
-    "enabled": "true",
-    "authorities": "com.getpebble.android.provider.basalt"
-  },
-  {
-    "kind": "provider",
     "name": "io.rebble.libpebblecommon.pebblekit.two.PebbleKitProvider",
     "permission": "",
     "readPermission": "",

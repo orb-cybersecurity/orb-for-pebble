@@ -1,9 +1,10 @@
 """Regression tests for the release manifest surface check; no Android tools required."""
 import copy
 import json
+import struct
 import unittest
 from pathlib import Path
-from check_apk import Node, check_exported_components, check_activity_classes
+from check_apk import Node, check_exported_components, check_activity_classes, check_classes, check_removed_protocol, dex_strings
 
 
 class ExportedComponentsTest(unittest.TestCase):
@@ -83,6 +84,40 @@ class ActivityClassesTest(unittest.TestCase):
         del activity.attrs["exported"]
         activity.children.append(Node("intent-filter"))
         self.assertTrue(check_activity_classes(manifest, set()))
+
+
+class RemovedCompanionProtocolTest(unittest.TestCase):
+    def test_removed_classes_and_references_fail(self):
+        descriptor = "Lio/rebble/libpebblecommon/pebblekit/classic/PebbleKitClassic;"
+        self.assertTrue(check_classes({descriptor}, {descriptor}))
+        self.assertTrue(check_classes(set(), {descriptor}))
+
+    def test_retained_companion_and_bluetooth_classes_pass(self):
+        descriptors = {"Lio/rebble/libpebblecommon/pebblekit/two/PebbleKit2;",
+                       "Lio/rebble/libpebblecommon/connection/bt/classic/transport/AndroidClassicScanner;"}
+        self.assertEqual([], check_classes(descriptors, descriptors))
+
+    def test_retired_authorities_and_intents_fail(self):
+        for value in ("com.getpebble.android.provider.basalt",
+                      "content://com.getpebble.android.provider.basalt/state",
+                      "com.getpebble.action.app.START", "com.getpebble.action.app.STOP",
+                      "com.getpebble.action.app.SEND", "com.getpebble.action.app.RECEIVE"):
+            with self.subTest(value=value):
+                self.assertTrue(check_removed_protocol([value]))
+
+    def test_dynamic_intent_in_dex_is_rejected(self):
+        action = b"com.getpebble.action.app.SEND"
+        data = bytearray(0x74)
+        data[:4] = b"dex\n"
+        struct.pack_into("<II", data, 0x38, 1, 0x70)
+        struct.pack_into("<I", data, 0x70, len(data))
+        data += bytes([len(action)]) + action + b"\x00"
+        self.assertTrue(check_removed_protocol(dex_strings(data)))
+
+    def test_retained_protocol_and_old_app_package_pass(self):
+        self.assertEqual([], check_removed_protocol([
+            "com.orbcybersecurity.orb.pebblekit", "com.getpebble.android.basalt",
+            "io.rebble.libpebblecommon.pebblekit.two.PebbleKitProvider"]))
 
 
 if __name__ == '__main__':

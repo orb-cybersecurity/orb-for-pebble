@@ -129,14 +129,14 @@ Rebble sign-in before it can be enabled; its installs are also added to your Reb
 locker. You can also open a `.pbw` file from a file manager or a download. Orb
 names the app before anything is installed.
 
-**PebbleKit companions.** Watch data and app control require a stored PebbleKit2
-companion declaration and allowed access, including through classic PebbleKit.
+**PebbleKit 2 companions.** Watch data and app control require a stored PebbleKit2
+companion declaration and allowed access. Phone apps need PebbleKit 2. The original
+companion API is removed.
 Queries return nothing until the companion is allowed: by the user, automatically
 for watchapps built before permissions unless "Ask before older apps use other
 permissions" is on, or with "Ask before apps use permissions" set to "Never".
 Observers can see that connected watches, the running watchapp, or companion access
-changed; no watch, app, companion or serial is revealed. Classic start/stop also
-needs Android 14 or newer and a sender that shares its identity. PBW cache eviction
+changed; no watch, app, companion or serial is revealed. PBW cache eviction
 does not remove a declaration.
 
 **Weather.** Core's weather service takes no account or token

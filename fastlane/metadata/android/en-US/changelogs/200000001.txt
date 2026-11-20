@@ -2,5 +2,5 @@
 - HTTPS only, trusting system certificates only.
 - Firmware: no automatic downgrades, checked downloads; watches in recovery get updates again.
 - Phone apps and web pages need permission to reach watchapps; settings pages lose network access as soon as you revoke it.
-- Classic PebbleKit only works for apps that declare PebbleKit 2.
+- Classic PebbleKit is removed; phone apps need PebbleKit 2.
 - Fixes for settings pages, notification images and leftover downloads.
