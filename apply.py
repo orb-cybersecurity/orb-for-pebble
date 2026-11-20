@@ -34,17 +34,17 @@ APP_LABEL = "Orb"
 # Upstream files the overlay replaces outright, with the sha256 of the upstream version each
 # replacement was written against.
 REPLACED = {
+    "util/src/commonMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.kt":
+        "34e5738df81313cfe342cf74abea14241993a6c667fb4e2f20a8f6d774babae2",
+    "util/src/commonMain/kotlin/coredevices/util/transcription/SpeechModelAvailability.kt":
+        "eb27d582a32869f2bd415c3934ca0efef12de314d0943d55e4c46da39d4aefac",
     'pebble/src/androidMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.android.kt': '0feeaeb7072ca4bd3856a3febf3547af9a53340889666ede463497ad1fd2df87',
     'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitClassicStartListeners.kt': '247f94341bb8d647a375a213ae732ad5b59ed0c1f053ebae3155ae7382b14d07',
     'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/web/FirmwareDownloader.kt': '44fba7bd14972ed37e170b1456b1435235cc99b9383d3560fe2257585594455b',
-    "util/src/androidMain/kotlin/AppUpdate.android.kt":
-        "aee44639f643a51315264b1cb1d682bbd994711f3e94f68bcda519be60b856ec",
     "util/src/androidMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.android.kt":
         "4b95f649c8dd2a5e2e3c6e3a19f9c05836d64315d0a75f8aa096201ff5819d36",
     "util/src/commonMain/kotlin/theme/Theme.kt":
         "76f3cfc7ce8722c581eec20a7638b03a92bc666481a41c052c337b5ffe668ceb",
-    "pebble/src/commonMain/kotlin/coredevices/pebble/services/Memfault.kt":
-        "9dda6ccec279bb6501975833de97476fadbdd6f41d0ba93623fafe1ed6ff136b",
     "util/src/androidMain/res/mipmap-anydpi-v26/ic_launcher.xml":
         "9c3a7e0a6515c6e1a7ae834a9ae430311ebc3241f7b2e5e7f0460aa690709a7c",
     "util/src/androidMain/res/values/ic_launcher_background.xml":
@@ -242,6 +242,48 @@ REMOVED = [
     # Tables of Core's telemetry uploads and sync queue (see drop_core_telemetry_tables()).
     *(f"util/src/commonMain/kotlin/coredevices/database/{name}.kt" for name in (
         "HeartbeatEntity", "MemfaultChunkEntity", "AnalyticsHeartbeatEntity", "SyncTaskEntity")),
+    # Inert permissions, phone-app updates, and speech model management.
+    'util/src/iosMain/kotlin/coredevices/util/clock/NativeAlarmKitBridge.kt',
+    'util/src/commonMain/kotlin/AppUpdate.kt',
+    'util/src/androidMain/kotlin/AppUpdate.android.kt',
+    'util/src/iosMain/kotlin/AppUpdate.ios.kt',
+    'composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/SpeechModelDownloadDialog.kt',
+    'util/src/commonMain/kotlin/coredevices/util/models/ModelDownloadManager.kt',
+    'util/src/iosMain/kotlin/coredevices/util/models/ModelDownloadManager.ios.kt',
+    'util/src/commonTest/kotlin/coredevices/util/transcription/PlatformModelStateTest.kt',
+    'util/src/commonTest/kotlin/coredevices/util/transcription/SpeechModelPromptTest.kt',
+    'pebble/src/androidMain/kotlin/coredevices/pebble/services/CactusTranscription.android.kt',
+    'pebble/src/iosMain/kotlin/coredevices/pebble/services/CactusTranscription.ios.kt',
+    # Cloud developer transport and hosted plugin sign-ins.
+    'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/devconnection/DevConnectionCloudpebbleProxy.kt',
+    'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/plugin/PluginOAuthApi.kt',
+    'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/plugin/PluginOAuthJsBridge.kt',
+    # Android already forwards the real phone notifications.
+    'util/src/commonMain/kotlin/coredevices/util/WatchNotifications.kt',
+    'util/src/iosMain/kotlin/coredevices/util/IosWatchNotifier.kt',
+    # Unreferenced providers, platform helpers, resources, and their obsolete tests.
+    'pebble/src/commonMain/kotlin/coredevices/pebble/services/NullTranscriptionProvider.kt',
+    'util/src/iosMain/kotlin/coredevices/util/transcription/CactusTranscriptionService.ios.kt',
+    'util/src/commonMain/kotlin/coredevices/ui/PebbleWebview.kt',
+    'util/src/androidMain/kotlin/coredevices/ui/PebbleWebview.android.kt',
+    'util/src/iosMain/kotlin/coredevices/ui/PebbleWebview.ios.kt',
+    'util/src/commonMain/kotlin/coredevices/util/PlatformBondingListener.kt',
+    'util/src/androidMain/kotlin/coredevices/util/PlatformBondingListener.android.kt',
+    'util/src/iosMain/kotlin/coredevices/util/PlatformBondingListener.ios.kt',
+    'util/src/commonMain/kotlin/coredevices/util/flow/StateFlowExt.kt',
+    'util/src/commonMain/kotlin/coredevices/util/flow/FlowExt.kt',
+    'util/src/commonTest/kotlin/coredevices/util/flow/FlowExtTest.kt',
+    'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/services/AppLogService.kt',
+    'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/util/LazyLock.kt',
+    'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/util/SerializationUtil.kt',
+    'pebble/src/commonMain/kotlin/coredevices/pebble/services/Memfault.kt',
+    'util/src/commonMain/kotlin/CoreIcons.kt',
+    'util/src/commonMain/composeResources/drawable/core.xml',
+    'util/src/commonMain/composeResources/drawable/notes.xml',
+    'util/src/commonMain/composeResources/drawable/assistant.xml',
+    'util/src/commonMain/composeResources/drawable/waveform.xml',
+    'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/health/HealthParsingTest.kt',
+    'pebble/src/commonTest/kotlin/coredevices/pebble/services/MemfaultTest.kt',
 ]
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
@@ -632,6 +674,45 @@ def remove_index_ring(settings_screen: str) -> None:
          r'(?:(?!</intent-filter>).*\n)*?[ \t]*<data android:scheme="voiceapp" />\n[ \t]*</intent-filter>\n', "")
     edit("androidApp/src/main/res/values/strings.xml",
          r'^[ \t]*<string name="intent_filter_notion_login">Notion Linking</string>\n', "")
+
+    # These permissions belonged only to removed ring features.
+
+    android_permission_requester = 'util/src/androidMain/kotlin/coredevices/util/AndroidPermissionRequester.kt'
+    ios_permission_requester = 'util/src/iosMain/kotlin/coredevices/util/IosPermissionRequester.kt'
+
+    edit('util/src/commonMain/kotlin/coredevices/util/Permission.kt',
+         r"^    (?:SetAlarms|BatteryOptimization|Beeper|Reminders|AlarmKit),\n", '', expect=5)
+    edit('util/src/commonMain/kotlin/coredevices/util/PermissionRequester.kt',
+         r"^    Permission\.(?:SetAlarms|BatteryOptimization|Beeper|Reminders|AlarmKit) -> .*\n", '', expect=10)
+    edit(android_permission_requester,
+         r"^            Permission\.(?:SetAlarms|BatteryOptimization) -> .*\n", '', expect=4)
+    edit(android_permission_requester,
+         r"^    Permission\.(?:SetAlarms|BatteryOptimization|Reminders|AlarmKit) -> .*\n", '', expect=4)
+    edit(android_permission_requester, r"^    Permission\.Beeper -> listOf\(\n(?:.*\n){2}    \)\n", '')
+
+    remove_kotlin_block(android_permission_requester, r"^    private (?:suspend )?fun hasAlarmPermission\(")
+    remove_kotlin_block(android_permission_requester, r"^    private (?:suspend )?fun requestAlarmPermission\(")
+
+    remove_kotlin_block(android_permission_requester,
+                    r"^    private (?:suspend )?fun batteryOptimizationsAreDisabled\(")
+    remove_kotlin_block(android_permission_requester,
+                    r"^    private (?:suspend )?fun requestBatteryOptimizationDisable\(")
+    edit(android_permission_requester,
+         r"^import (?:android\.app\.AlarmManager|android\.os\.PowerManager|androidx\.core\.content\.getSystemService|androidx\.core\.net\.toUri)\n", '', expect=4)
+    edit(ios_permission_requester,
+         r"^        (?:    )?Permission\.(?:SetAlarms|BatteryOptimization|Beeper|Reminders|AlarmKit) -> .*\n", '', expect=10)
+    replace_literal(ios_permission_requester, 'import coredevices.util.clock.NativeAlarmKitBridge\n', '')
+
+    replace_literal(ios_permission_requester, '    private var remindersGrantedThisSession = false\n', '')
+    edit(ios_permission_requester,
+         r"^    private fun hasRemindersPermission\(\): Boolean = remindersGrantedThisSession \|\|\n(?:.*\n){3}", '')
+    remove_kotlin_block(ios_permission_requester, r"^    private (?:suspend )?fun requestRemindersPermission\(")
+
+    remove_kotlin_block(ios_permission_requester, r"^    private (?:suspend )?fun hasAlarmKitPermission\(")
+    remove_kotlin_block(ios_permission_requester, r"^    private (?:suspend )?fun requestAlarmKitPermission\(")
+
+    replace_literal('pebble/src/commonMain/composeResources/values/strings.xml',
+                    '    <string name="index">Index</string>\n', '')
 
 
 def kotlin_bracket_pairs(text: str) -> dict[int, int]:
@@ -1027,9 +1108,6 @@ def remove_core_speech(settings_screen: str) -> None:
         edit(f"{gradle}/build.gradle.kts", r'^[ \t]*(?:implementation|api|androidTestImplementation)\(project\(":cactus"\)\)\n', "")
 
     # util: what only the removed services used.
-    downloads = "util/src/commonMain/kotlin/coredevices/util/models/ModelDownloadManager.kt"
-    remove_kotlin_block(downloads, r"^expect class ModelDownloadManager \{")
-    edit(downloads, r"^import kotlinx\.coroutines\.(Deferred|flow\.StateFlow)\n", "", expect=2)
     transcription = "util/src/commonMain/kotlin/coredevices/util/transcription/TranscriptionService.kt"
     remove_kotlin_block(transcription,
                         r"^/\*\* A \[TranscriptionService\] that can run on-device engines.*\n"
@@ -1065,12 +1143,6 @@ def remove_core_speech(settings_screen: str) -> None:
 
     app = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/App.kt"
     edit(app, r"^[ \t]*SttModelUpdatePrompt\(\)\n", "")
-
-    dialog = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/SpeechModelDownloadDialog.kt"
-    edit(dialog,
-         r"^[ \t]*config\.sttConfig\.mode\.usesLocalCactus\(\) ->\n[ \t]*CactusModelDownloadDialog\(.*\n", "")
-    remove_kotlin_block(dialog, r"^@Composable\nprivate fun CactusModelDownloadDialog\(")
-    edit(dialog, r"^import coredevices\.util\.models\.(ModelInfo|ModelManager)\n", "", expect=2)
 
     # pebble: the router's wiring and the offline-models screen.
     watch_module = "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt"
@@ -1115,6 +1187,112 @@ def remove_core_speech(settings_screen: str) -> None:
          r"[ \t]*pendingSTTModeDialog = it\n",
          "")
     remove_kotlin_block(settings_screen, r"^[ \t]*extraSupportingContent = \{(?=\n[ \t]*modelDownloadState\.takeIf)")
+
+    # The system recognizer consumes audio and language, with the watch timeout outside it.
+
+    hybrid_transcription = 'pebble/src/commonMain/kotlin/coredevices/pebble/services/HybridTranscription.kt'
+    notification_dao = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/database/dao/NotificationDao.kt'
+    app_nav_host = 'composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/AppNavHost.kt'
+    platform_speech_recognizer_ios = 'util/src/iosMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.ios.kt'
+    core_config = 'util/src/commonMain/kotlin/coredevices/util/CoreConfig.kt'
+
+    edit(hybrid_transcription,
+         r"^import (?:io\.rebble\.libpebblecommon\.connection\.LibPebble|kotlinx\.io\.files\.Path)\n", '', expect=2)
+    replace_literal(hybrid_transcription, 'internal expect fun tempTranscriptionDirectory(): Path\n', '')
+
+    replace_literal(hybrid_transcription, '    private val libPebbleLazy: Lazy<LibPebble>,\n', '')
+    replace_literal(hybrid_transcription, '        service.earlyInit()\n', '')
+
+    edit(hybrid_transcription,
+         r"^            val recentContacts = if \(isNotificationReply\) \{\n(?:.*\n)*?            \} else null\n", '')
+    edit(hybrid_transcription,
+         r"^                    (?:contentContext|dictionaryContext|encoding|totalTimeout) = .*\n", '', expect=4)
+    replace_literal(watch_module, '            lazy { get<LibPebble3>() },\n', '')
+
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/LibPebble.kt',
+                    '    fun mostRecentNotificationParticipants(limit: Int): Flow<List<String>>\n', '')
+    remove_kotlin_block('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/FakeLibPebble.kt',
+                    r"^    override fun mostRecentNotificationParticipants\(")
+    edit('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/notification/PlatformNotificationListener.kt',
+         r"^    override fun mostRecentNotificationParticipants\(limit: Int\): Flow<List<String>> =\n        notificationsDao\.mostRecentParticipants\(limit\)\.map \{ row -> row\.flatMap \{ it\.people \} \}\n", '')
+    edit(notification_dao,
+         r'^    @Query\("SELECT DISTINCT people FROM NotificationEntity.*\n    fun mostRecentParticipants\(.*\n', '')
+    remove_kotlin_block(notification_dao, r"^data class PeopleList\(")
+
+    remove_kotlin_block(transcription,
+                    r"^    /\*\*\n     \* Begin initialization of transcription service in the background\.\n     \*/\n    fun earlyInit\(")
+    edit(transcription, r"^    val onInitialized: Channel<Boolean>\n", '')
+
+    edit(transcription,
+         r"^import (?:kotlin\.time\.Duration|kotlinx\.coroutines\.channels\.Channel|coredevices\.util\.AudioEncoding)\n", '', expect=3)
+    edit(transcription,
+         r"^        (?:conversationContext|dictionaryContext|contentContext|encoding|initialTimeout|totalTimeout): .*\n", '', expect=6)
+    edit(transcription, r"^     \* @param (?:initialTimeout|totalTimeout).*\n", '', expect=2)
+
+    remove_kotlin_block(transcription, r"^data class STTConversationMessage\(")
+    remove_kotlin_block(transcription, r"^data class STTConversationContext\(")
+
+    remove_kotlin_block(transcription, r"^enum class STTConvoRole \{")
+
+    # Android recognizers manage their own models; there is no Orb download action.
+
+    edit(settings_screen,
+         r"^import coredevices\.util\.(?:models\.ModelDownloadStatus|transcription\.(?:SpeechModelAvailability|platformModelNeedsDownload|platformModelState))\n", '', expect=4)
+    replace_literal(settings_screen,
+                    '    val platformDownloadStatus by platformSpeechRecognizer.downloadStatus.collectAsState()\n', '')
+    remove_kotlin_block(settings_screen, r"^    val platformModelAvailability by produceState\(")
+
+    replace_literal(settings_screen,
+                    '    val platformNeedsDownload = platformModelNeedsDownload(platformModelAvailability, platformDownloadStatus)\n', '')
+    replace_literal(settings_screen, '                platformSpeechRecognizer.releaseUnusedModels(code)\n', '')
+
+    remove_kotlin_block(settings_screen,
+                    r"^                if \(coreConfig\.sttConfig\.mode == CactusSTTMode\.PlatformOnly\) \{")
+    remove_kotlin_block(settings_screen,
+                    r"^                            if \(isPlatform && platformNeedsDownload\) \{")
+    remove_kotlin_block(settings_screen,
+                    r'^                navBarNav\?\.let \{(?= nav -> basicSettingsActionItem\(\n                    title = "System Speech Model",)')
+    edit('util/src/commonMain/kotlin/CommonRoutes.kt',
+         r"^    /\*\* Dialog offering to download.*\n     \*  Routed.*\*/\n    @Serializable\n    data object SpeechModelDownloadDialog : CoreRoute\n\n    const val SPEECH_MODEL_DOWNLOAD_DEEP_LINK_PATH = .*\n    const val SPEECH_MODEL_DOWNLOAD_DEEP_LINK = .*\n", '')
+    replace_literal(app_nav_host, 'import coredevices.coreapp.ui.SpeechModelDownloadDialog\n', '')
+
+    remove_kotlin_block(app_nav_host, r"^        dialog<CommonRoutes\.SpeechModelDownloadDialog> \{")
+    replace_literal('composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandler.kt',
+                    '            CommonRoutes.SPEECH_MODEL_DOWNLOAD_DEEP_LINK_PATH -> CommonRoutes.SpeechModelDownloadDialog\n', '')
+
+    edit(platform_speech_recognizer_ios,
+         r"^import (?:coredevices\.util\.models\.(?:ModelDownloadStatus|inProgress)|kotlinx\.coroutines\.flow\.asStateFlow)\n", '', expect=3)
+    replace_literal(platform_speech_recognizer_ios,
+                    '    private val _downloadStatus = MutableStateFlow<ModelDownloadStatus>(ModelDownloadStatus.Idle)\n', '')
+    replace_literal(platform_speech_recognizer_ios,
+                    '    actual val downloadStatus: StateFlow<ModelDownloadStatus> = _downloadStatus.asStateFlow()\n', '')
+    replace_literal(platform_speech_recognizer_ios,
+                    '    actual suspend fun modelAvailability', '    private suspend fun modelAvailability')
+    replace_literal(platform_speech_recognizer_ios,
+                    '        if (_downloadStatus.value.inProgress) return SpeechModelAvailability.Downloading\n', '')
+    remove_kotlin_block(platform_speech_recognizer_ios, r"^    actual fun downloadModel\(")
+
+    remove_kotlin_block(platform_speech_recognizer_ios, r"^    actual fun releaseUnusedModels\(")
+    edit(platform_speech_recognizer_ios,
+         r"^    /\*\* Progress is 0\.\.1;.*\*/\n    @Volatile\n    var downloadAssets:.*\n\n    @Volatile\n    var releaseUnusedReservations:.*\n", '')
+    replace_literal(platform_speech_recognizer_ios,
+                    '    private val logger = Logger.withTag("PlatformSpeechRecognizer")\n', '')
+    replace_literal(platform_speech_recognizer_ios, 'import co.touchlab.kermit.Logger\n', '')
+
+    replace_literal(watch_module, 'import coredevices.pebble.services.NullTranscriptionProvider\n', '')
+
+    replace_literal(watch_module,
+                    '    factoryOf(::NullTranscriptionProvider) bind TranscriptionProvider::class\n', '')
+    replace_literal(core_config, '    val modelName: String? = null,\n', '')
+
+    replace_literal(core_config, '        val model = settings.getStringOrNull("cactus_stt_model")\n', '')
+    replace_literal(core_config, '                    modelName = model,\n', '')
+
+    replace_literal(core_config, 'mode=$mode, model=$model', 'mode=$mode')
+
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt',
+                    'import coredevices.util.models.inProgress\n',
+                    '')
 
 
 def remove_core_account_screens(settings_screen: str) -> None:
@@ -1227,6 +1405,37 @@ def remove_core_account_screens(settings_screen: str) -> None:
     # Nothing depends on the stand-ins for Core's noise-suppression library (in REMOVED).
     edit("settings.gradle.kts", r'^include\(":krisp-stubs"\)\n', "")
 
+    # Delete the empty phone-app update integration after removing its consumers.
+
+    common_app_delegate = 'composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt'
+    preview_util = 'pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt'
+    android_default_module = 'composeApp/src/androidMain/kotlin/coredevices/coreapp/di/androidDefaultModule.kt'
+
+    edit(common_app_delegate, r"^import coredevices\.coreapp\.util\.AppUpdate\n", '')
+    replace_literal(common_app_delegate, '    private val appUpdate: AppUpdate,\n', '')
+
+    replace_literal(common_app_delegate,
+                    '                    add(scope.launch {\n                        appUpdate.updateAvailable.value\n                    })\n', '')
+    edit(settings_screen, r"^import coredevices\.coreapp\.util\.AppUpdate(?:State)?\n", '', expect=2)
+
+    replace_literal(settings_screen,
+                    '    val appUpdate: AppUpdate = koinInject()\n    val updateState by appUpdate.updateAvailable.collectAsState()\n', '', expect=2)
+    remove_kotlin_block(settings_screen, r"^    val updatesAvailable = when \(updateState\) \{")
+
+    replace_literal(settings_screen, 'return permissionBadgeCount + updatesAvailable', 'return permissionBadgeCount')
+    remove_kotlin_block(preview_util, r"^    single \{ object : AppUpdate \{")
+
+    edit(preview_util, r"^import coredevices\.coreapp\.util\.AppUpdate(?:PlatformContent|State)?\n", '', expect=3)
+    edit(android_default_module, r"^import coredevices\.coreapp\.util\.(?:AndroidAppUpdate|AppUpdate)\n", '', expect=2)
+
+    replace_literal(android_default_module, '    singleOf(::AndroidAppUpdate) bind AppUpdate::class\n', '')
+    replace_literal('util/src/commonMain/kotlin/coredevices/util/CoreConfig.kt',
+                    '    val showAppUpdatedBadge: Boolean = true,\n', '')
+
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt',
+                    '            updateState,\n',
+                    '')
+
 
 def remove_core_support_chat() -> None:
     """Remove Core's support chat and the push messages that fed it.
@@ -1284,6 +1493,47 @@ def remove_core_support_chat() -> None:
     edit(manifest,
          r'^        <service android:name="coredevices\.util\.models\.ModelDownloadService"\n'
          r'(?:            .*\n){2}        </service>\n', "")
+
+    # Sharing is the only report path. Keep attachment capture and failures.
+
+    bug_report_screen = 'composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt'
+
+    remove_kotlin_block(bug_report_screen, r"^data class UserProps\(")
+
+
+    replace_literal(bug_report_screen,
+                    '        val (showSuccess, setShowSuccess) = remember { mutableStateOf(false) }\n', '')
+    replace_literal(bug_report_screen,
+                    '        val (sendingProgress, setSendingProgress) = remember { mutableStateOf<Double?>(null) }\n', '')
+    replace_literal(bug_report_screen, 'fun sendLogs(shareLocally: Boolean)', 'fun sendLogs()')
+
+    replace_literal(bug_report_screen, 'sendLogs(shareLocally = true)', 'sendLogs()', expect=2)
+    replace_literal(bug_report_screen,
+                    '            // Check if user is signed in before proceeding\n            if (user == null && !shareLocally) {\n                setStatus("Please sign in before submitting a bug report")\n                return\n            }\n\n', '')
+    replace_literal(bug_report_screen,
+                    '                // Extract Google ID token from current user\n                val currentUser = user\n                if (currentUser == null && !shareLocally) {\n                    setStatus("Please sign in before submitting a bug report")\n                    setSending(false)\n                    return@launch\n                }\n\n', '')
+    edit(bug_report_screen,
+         r"^                    (?:userName = currentUser\?\.userName,|userEmail = currentUser\?\.userEmail,|shareLocally = shareLocally,)\n", '', expect=3)
+    replace_literal(bug_report_screen,
+                    '                        is BugReportState.BugReportResult.Success -> Unit\n', '')
+    replace_literal(bug_report_screen, '                        BugReportState.UploadingAttachments -> Unit\n', '')
+
+    replace_literal(bug_report_screen, 'BugReportState.BugReportResult.Failed', 'BugReportState.Failed')
+    edit(bug_report_screen, r"^                            setSendingProgress\(null\)\n", '', expect=2)
+
+    replace_literal(bug_report_screen,
+                    '                            if (!shareLocally) {\n                                coreNav.goBack()\n                            } else {\n                                setStatus("Gathering Watch Logs")\n                            }', '                            setStatus("Gathering Watch Logs")')
+    replace_literal(bug_report_screen,
+                    '!sending && !showSuccess && !screenshotLoading', '!sending && !screenshotLoading')
+    remove_kotlin_block(bug_report_screen, r"^                                showSuccess -> \{")
+
+    remove_kotlin_block(bug_report_screen,
+                    r"^                if \(sending\) \{(?=\n                    CoreLinearProgressIndicator)")
+    replace_literal(bug_report_screen, 'import coredevices.ui.CoreLinearProgressIndicator\n', '')
+
+    replace_literal('composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt',
+                    '                            status.contains("error", ignoreCase = true) ||\n                            status.contains("authentication", ignoreCase = true)',
+                    '                            status.contains("error", ignoreCase = true)', expect=2)
 
 
 def remove_crashlytics() -> None:
@@ -1450,7 +1700,25 @@ def remove_core_account() -> None:
     edit(bug_report,
          r"^        val user by Firebase\.auth\.authStateChanged\.map \{\n(?:.*\n){3}"
          r"            \.collectAsState\(Firebase\.auth\.currentUser\.toUserProps\(\)\)\n",
-         "        val user: UserProps? = null\n")
+         "")
+
+    # Only Rebble supports account hearts; Core store browsing stays public.
+
+    replace_literal(web_services,
+                    'getAllSources(enabledOnly = true).forEach { source ->', 'getAllSources(enabledOnly = true).filter { it.isRebbleFeed() }.forEach { source ->')
+    edit(web_services,
+         r"^    (?:suspend fun fetchUsersMeCore\(\): CoreUsersMe\?|override suspend fun fetchUsersMeCore\(\): CoreUsersMe\? = .*|Core,)\n", '', expect=3)
+    replace_literal(web_services,
+                    'HttpClientAuthType.Pebble, HttpClientAuthType.Core -> true', 'HttpClientAuthType.Pebble -> true')
+    edit(web_services, r"^            HttpClientAuthType\.Core -> null\n", '')
+
+    remove_kotlin_block(web_services, r"^@Serializable\ndata class CoreUsersMe\(")
+    edit(appstore,
+         r"^            PEBBLE_FEED_URL -> \{\n                (?:pebbleHttpClient\.(?:post|delete)\(.*|pebbleWebServices\.fetchUsersMeCore\(\)\?\.votedIds)\n            \}\n", '', expect=3)
+    replace_literal(appstore, 'import coredevices.pebble.services.PebbleHttpClient.Companion.delete\n', '')
+
+    replace_literal(preview, 'import coredevices.pebble.services.CoreUsersMe\n', '')
+    replace_literal(preview, '        override suspend fun fetchUsersMeCore(): CoreUsersMe? = null\n', '')
 
 
 def remove_firebase() -> None:
@@ -1477,7 +1745,7 @@ def remove_firebase() -> None:
          r"[ \t]*\.map \{ try \{ it\?\.getIdToken\(false\) \}.*\n"
          r"[ \t]*\.stateIn\(GlobalScope, started = SharingStarted\.Lazily, initialValue = null\),\n"
          r"([ \t]*get\(\),\n[ \t]*get\(\),\n)[ \t]*get\(\),\n",
-         r"kotlinx.coroutines.flow.MutableStateFlow<String?>(null),\n\1")
+         r"\1")
     edit(watch_module, r"^    singleOf\(::HostedPluginOAuthApi\) bind PluginOAuthApi::class\n", "")
     edit(watch_module,
          r"^import (coredevices\.pebble\.plugin\.HostedPluginOAuthApi|dev\.gitlive\.firebase\.(Firebase|auth\.auth)"
@@ -1488,6 +1756,119 @@ def remove_firebase() -> None:
         "util/src/commonMain/kotlin/coredevices/api/EngDashOtaApi.kt",
         r"^class EngDashOtaApiImpl\(\n    private val baseUrl: String = BASE_URL,\n"
         r"\) : ApiClient\(CommonBuildKonfig\.USER_AGENT_VERSION\), EngDashOtaApi \{")
+
+    # There is only the opt-in LAN transport; disabling it cancels the active server.
+
+    lib_pebble_module = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/di/LibPebbleModule.kt'
+    lib_pebble = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/LibPebble.kt'
+    dev_connection_manager = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/devconnection/DevConnectionManager.kt'
+    pebble_device = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/PebbleDevice.kt'
+    packets = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/devconnection/packets.kt'
+    js_plugin_factory = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/plugin/JsPluginFactory.kt'
+    js_plugin = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/plugin/JsPlugin.kt'
+    plugin_manifest = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/plugin/PluginManifest.kt'
+    eng_dash_ota = 'pebble/src/commonMain/kotlin/coredevices/pebble/services/EngDashOta.kt'
+
+    edit(lib_pebble_module, r"^import io\.rebble\.libpebblecommon\.plugin\.PluginOAuthApi\n", '')
+    edit(lib_pebble_module,
+         r"^    (?:        )?(?:proxyTokenProvider: StateFlow<String\?>,|pluginOAuthApi: PluginOAuthApi\? = null,)\n", '', expect=2)
+    edit(lib_pebble, r"^import io\.rebble\.libpebblecommon\.plugin\.PluginOAuthApi\n", '')
+
+    edit(lib_pebble,
+         r"^    (?:        )?(?:proxyTokenProvider: StateFlow<String\?>,|pluginOAuthApi: PluginOAuthApi\? = null,)\n", '', expect=2)
+    replace_literal(lib_pebble, ', proxyTokenProvider, transcriptionProvider', ', transcriptionProvider')
+
+    replace_literal(lib_pebble, ', injectedPKJSHttpInterceptors, pluginOAuthApi)', ', injectedPKJSHttpInterceptors)')
+    replace_literal(lib_pebble_module,
+                    'import io.rebble.libpebblecommon.connection.devconnection.DevConnectionCloudpebbleProxy\n', '')
+    remove_kotlin_block(lib_pebble_module,
+                    r"^                single \{(?=\n                    DevConnectionCloudpebbleProxy\()")
+    replace_literal(lib_pebble_module,
+                    '                                    get<DevConnectionCloudpebbleProxy>()', '                                    null')
+    replace_literal(lib_pebble_module, ', pluginOAuthApi) }', ') }')
+
+    replace_literal(dev_connection_manager, 'Flow<DevConnectionTransport>,', 'Flow<DevConnectionTransport?>,')
+    replace_literal(dev_connection_manager, '    private val lanServer: DevConnectionServer,\n', '')
+
+    replace_literal(lib_pebble_module, '                            lanServer = get<DevConnectionServer>(),\n', '')
+    replace_literal(dev_connection_manager,
+                    '/** Watches with an active dev connection (value = forceLan), resumed on reconnection. */', '/** Watches with an active LAN developer connection, resumed on reconnection. */')
+    replace_literal(dev_connection_manager,
+                    'MutableStateFlow<Map<PebbleIdentifier, Boolean>>(emptyMap())', 'MutableStateFlow<Set<PebbleIdentifier>>(emptySet())')
+    replace_literal(dev_connection_manager,
+                    '        val forceLan = resumer.active.value[identifier] ?: return\n        start(forceLan)', '        if (identifier in resumer.active.value) start()')
+    replace_literal(dev_connection_manager, 'startDevConnection(forceLan: Boolean)', 'startDevConnection()')
+
+    replace_literal(dev_connection_manager, 'it + (identifier to forceLan)', 'it + identifier')
+    replace_literal(dev_connection_manager, '        start(forceLan)', '        start()')
+
+    replace_literal(dev_connection_manager, 'private fun start(forceLan: Boolean)', 'private fun start()')
+    replace_literal(dev_connection_manager,
+                    '        // Must never complete: onCompletion below stops the transport, so a finite flow would\n        // tear the server down as soon as it emitted.\n        val transport = if (forceLan) MutableStateFlow(lanServer) else transport\n', '')
+    replace_literal(dev_connection_manager,
+                    '                    last = it\n                    it.start',
+                    '                    last = it\n'
+                    '                    if (it == null) {\n'
+                    '                        resumer.active.update { active -> active - identifier }\n'
+                    '                        return@collectLatest\n'
+                    '                    }\n'
+                    '                    it.start')
+    replace_literal(dev_connection_manager,
+                    '                transport.onCompletion {\n                    last?.stop()\n                }.collectLatest {', '                transport.collectLatest {')
+    replace_literal(dev_connection_manager, 'import kotlinx.coroutines.flow.onCompletion\n', '')
+
+    replace_literal(pebble_device,
+                    '        /** [forceLan] ignores the lanDevConnection config and always uses the LAN server. */\n', '')
+    replace_literal(pebble_device, 'startDevConnection(forceLan: Boolean = false)', 'startDevConnection()')
+
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/FakeLibPebble.kt',
+                    'startDevConnection(forceLan: Boolean)', 'startDevConnection()', expect=2)
+    remove_kotlin_block(packets, r"^class ProxyAuthenticationMessage\(\n    token: String\n\): StructMappable\(\) \{")
+
+    remove_kotlin_block(packets,
+                    r"^class ProxyAuthenticationMessageV2\(\n    token: String\n\): StructMappable\(\) \{")
+    edit(packets, r"^import io\.rebble\.libpebblecommon\.structmapper\.S(?:LongString|String)\n", '', expect=2)
+
+    edit('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/devconnection/ServerMessageType.kt',
+         r"^    ProxyAuthentication(?:V2)?\(.*\n", '', expect=2)
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/devconnection/ClientMessageType.kt',
+                    '    //ProxyAuthenticationRequest(0x09),\n', '')
+    replace_literal(js_plugin_factory, '    private val oauthApi: PluginOAuthApi? = null,\n', '')
+
+    replace_literal(js_plugin, '    private val oauthApi: PluginOAuthApi? = null,\n', '')
+    replace_literal(js_plugin_factory, '        oauthApi = oauthApi,\n', '')
+
+    replace_literal(js_plugin,
+                    '    /** Host-side hosted OAuth, when available. Only reachable by plugins that declare a connector. */\n', '')
+    replace_literal(js_plugin,
+                    '    /** Wired only when the plugin declares an `oauth` connector and the host has an OAuth API. */\n    private val oauth = oauthApi?.takeIf { manifest.oauth.isNotEmpty() }\n', '')
+    remove_kotlin_block(js_plugin, r"^        val oauthBridge = oauth\?\.let \{")
+
+    replace_literal(js_plugin, ', oauthBridge,', ',', expect=2)
+    replace_literal(js_plugin, '        private val oauthBridge: PluginOAuthJsBridge?,\n', '')
+
+    replace_literal(js_plugin, '            oauthBridge?.let { engine.eval(PluginOAuthJsBridge.INSTALL_JS) }\n', '')
+    replace_literal(js_plugin, '            oauthBridge?.close()\n', '')
+
+    edit(plugin_manifest,
+         r"^    /\*\*\n     \* Hosted OAuth connectors.*\n(?:     \*.*\n)*?     \*/\n    val oauth: Map<String, OAuthConnector> = emptyMap\(\),\n", '')
+    edit(plugin_manifest,
+         r"^/\*\*\n \* A declared hosted-OAuth connector.*\n(?: \*.*\n)*? \*/\n@Serializable\nclass OAuthConnector\n", '')
+    replace_literal(eng_dash_ota, 'import coredevices.pebble.services.Memfault.Companion.serialForMemfault\n', '')
+
+    replace_literal(eng_dash_ota, '                deviceSerial = watch.serialForMemfault(),\n', '')
+    edit(eng_dash_ota,
+         r"^/\*\*\n \* OTA update check against eng-dash.*\n \* Core devices.*\n \*/", "/** Adapts Orb's firmware source to the watch update checker. */")
+    replace_literal(eng_dash_ota, 'Error checking for updates from eng-dash:', 'Error checking for firmware updates:')
+
+    edit('util/src/commonMain/kotlin/coredevices/api/EngDashOtaApi.kt',
+         r"^        (?:deviceSerial: String,|deviceMac: String\? = null)\n", '', expect=2)
+    replace_literal(dev_connection_manager,
+                    'import kotlinx.coroutines.flow.collectLatest\n', 'import kotlinx.coroutines.flow.collectLatest\nimport kotlinx.coroutines.flow.transformWhile\n')
+    replace_literal(dev_connection_manager,
+                    '                transport.collectLatest {', '                transport.transformWhile { next ->\n                    emit(next)\n                    next != null\n                }.collectLatest {')
+    replace_literal(lib_pebble_module,
+                    'import io.rebble.libpebblecommon.connection.devconnection.CloudpebbleProxyProtocolVersion\n', '')
 
 
 def remove_analytics() -> None:
@@ -1664,6 +2045,15 @@ def remove_release_additions() -> None:
     replace_literal("pebble/src/commonMain/kotlin/coredevices/pebble/ui/CalendarScreen.kt",
                     "Is sharing enabled in the Google Calendar app? See: Settings -> General -> Share Google Calendar data with other apps",
                     "Check that your calendar app allows other apps to read its calendars.")
+    replace_literal('composeApp/build.gradle.kts', '            implementation(libs.androidx.credentials)\n', '')
+
+    edit(catalog,
+         r"^(?:androidx-credentials|mcp|glance|kmpMaps|modelcontextprotocol-(?:client|core|server)|androidx-glance(?:-material3)?|swmansion-kmpMaps-core|cactus-lm-weights) = .*\n", '', expect=12)
+    replace_literal(catalog, '# Cactus model checkpoints\n', '')
+
+    replace_literal('composeApp/build.gradle.kts',
+                    '        commonTest.dependencies {\n            implementation(libs.kotlin.test)\n',
+                    '        commonTest.dependencies {\n            implementation(libs.kotlin.test)\n            implementation(libs.settings.test)\n')
 
 
 def remove_library_telemetry() -> None:
@@ -1761,6 +2151,88 @@ def remove_dead_leftovers() -> None:
     edit(main_activity, r"^    private val oAuthRedirectHandler: OAuthRedirectHandler by inject\(\)\n", "")
     # Its body always runs now.
     unwrap_kotlin_block(main_activity, "        if (!oAuthRedirectHandler.handleOAuthRedirect(uri)) {\n")
+
+    # Android posts the real notifications and PendingIntents directly; the watch sink is empty.
+
+    permission_request_notifier = 'pebble/src/commonMain/kotlin/coredevices/pebble/permissions/PermissionRequestNotifier.kt'
+    firmware_update_ui_tracker = 'pebble/src/commonMain/kotlin/coredevices/pebble/firmware/FirmwareUpdateUiTracker.kt'
+    common_app_delegate = 'composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt'
+    pebble_app_delegate = 'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleAppDelegate.kt'
+    platform_android = 'util/src/androidMain/kotlin/coredevices/util/Platform.android.kt'
+    platform = 'util/src/commonMain/kotlin/coredevices/util/Platform.kt'
+    health_records = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/health/HealthRecords.kt'
+    health = 'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/health/Health.kt'
+
+    edit(permission_request_notifier,
+         r"^import coredevices\.util\.(?:WatchNotifier|WatchNotificationAction|setWatchNotificationActionHandler)\n", '', expect=3)
+    replace_literal(permission_request_notifier, '    private val watchNotifier: WatchNotifier,\n', '')
+
+    edit(firmware_update_ui_tracker,
+         r"^import coredevices\.util\.(?:WatchNotifier|WatchNotificationAction|setWatchNotificationActionHandler)\n", '', expect=2)
+    replace_literal(firmware_update_ui_tracker, '    private val watchNotifier: WatchNotifier,\n', '')
+
+    edit(common_app_delegate,
+         r"^import coredevices\.util\.(?:WatchNotifier|WatchNotificationAction|setWatchNotificationActionHandler)\n", '')
+    replace_literal(common_app_delegate, '    private val watchNotifier: WatchNotifier,\n', '')
+
+    remove_kotlin_block(permission_request_notifier,
+                    r"^    /\*\* Before the watch connects.*\*/\n    fun registerWatchActions\(")
+    replace_literal(permission_request_notifier, '                    watchNotifier.remove(watchKey(appUuid))\n', '')
+
+    replace_literal(permission_request_notifier, 'import kotlinx.serialization.json.Json\n', '')
+
+    edit(permission_request_notifier,
+         r"^        private fun watchKey\(.*\n\n        private fun watchActionType\(.*\n", '')
+    remove_kotlin_block(permission_request_notifier, r"^        private fun decodeWatchActionData\(")
+
+    replace_literal(firmware_update_ui_tracker,
+                    '        val actions = if (showUpdateAction) {\n            listOf(WatchNotificationAction("Update Now", FIRMWARE_UPDATE_NOW_WATCH_ACTION, identifier.asString))\n        } else {\n            emptyList()\n        }\n        watchNotifier.send(watchKey(key), title, body, actions)', '')
+    replace_literal(firmware_update_ui_tracker, '            watchNotifier.remove(watchKey(notificationKey))\n', '')
+
+    replace_literal(firmware_update_ui_tracker, '    private fun watchKey(key: Int) = "firmware-update/$key"\n', '')
+    replace_literal(firmware_update_ui_tracker,
+                    'const val FIRMWARE_UPDATE_NOW_WATCH_ACTION = "firmware_update_now"\n', '')
+    edit(pebble_app_delegate,
+         r"^import (?:coredevices\.pebble\.firmware\.FIRMWARE_UPDATE_NOW_WATCH_ACTION|coredevices\.util\.setWatchNotificationActionHandler)\n", '', expect=2)
+    remove_kotlin_block(pebble_app_delegate,
+                    r"^        libPebble\.setWatchNotificationActionHandler\(FIRMWARE_UPDATE_NOW_WATCH_ACTION\) \{")
+    replace_literal(pebble_app_delegate, '        permissionRequestNotifier.registerWatchActions()\n', '')
+
+    edit(android_module, r"^import coredevices\.util\.(?:NoOpWatchNotifier|WatchNotifier)\n", '', expect=2)
+    replace_literal(android_module, '    singleOf(::NoOpWatchNotifier) bind WatchNotifier::class\n', '')
+
+    # Unreferenced library definitions; live health parsers and platform health sync stay.
+
+    remove_kotlin_block(platform_android, r"^    companion object \{")
+    replace_literal(platform_android, 'import kotlinx.coroutines.flow.MutableSharedFlow\n', '')
+
+    remove_kotlin_block(platform, r"^    companion object \{")
+    replace_literal(platform, 'import kotlinx.coroutines.channels.Channel\n', '')
+
+    remove_kotlin_block(health_records, r"^data class StepsRecord\(")
+    remove_kotlin_block(health_records, r"^data class OverlayRecord\(")
+
+    remove_kotlin_block(health_records, r"^class RawStepsRecord : StructMappable\(\) \{")
+    remove_kotlin_block(health_records, r"^class RawOverlayRecord : StructMappable\(\) \{")
+
+    edit(health_records,
+         r"^import io\.rebble\.libpebblecommon\.(?:structmapper\.(?:SUByte|SUInt|SUShort|StructMappable)|util\.Endian)\n", '', expect=5)
+    remove_kotlin_block(health, r"^/\*\* [^\n]* \*/\ndata class StackedSleepData\(")
+
+    remove_kotlin_block(health, r"^/\*\* [^\n]* \*/\ndata class WeeklyAggregatedData\(")
+    remove_kotlin_block(health, r"^/\*\* [^\n]* \*/\ndata class SleepSegment\(")
+
+    remove_kotlin_block(health, r"^/\*\* [^\n]* \*/\ndata class DailySleepData\(")
+    remove_kotlin_block('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/XMLHTTPRequestManager.kt',
+                    r"^@Serializable\ndata class CompleteXHRResponse\(")
+    remove_kotlin_block('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/calendar/CalendarEvent.kt',
+                    r"^data class EventRecurrenceRule\(")
+    replace_literal(common_app_delegate, '    private val pebbleAccountProvider: PebbleAccountProvider,\n', '')
+
+    replace_literal(common_app_delegate, 'import coredevices.pebble.services.PebbleAccountProvider\n', '')
+    replace_literal(permission_request_notifier,
+                    'notify(notificationFor(appUuid, keys))', 'notifyPermissionRequest(appContext, notificationFor(appUuid, keys))')
+    remove_kotlin_block(permission_request_notifier, r"^    private fun notify\(")
 
 
 def harden_release_manifest() -> None:
@@ -3630,7 +4102,7 @@ def apply(extra_abis: list[str]) -> None:
     # Core's telemetry: the watch's analytics heartbeats and Memfault diagnostic chunks, queued
     # in the database and uploaded to Core and to Memfault. Orb builds have no endpoint or key
     # for either, so the code could never send anything; it is removed rather than left inert.
-    # The upload classes are in REMOVED and Memfault.kt is replaced by its serial helper. The
+    # The upload classes and their serial helper are in REMOVED. The
     # library drops non-health system data before parsing it (remove_library_telemetry()).
     # drop_core_telemetry_tables() also removes the old on-phone queues.
     services = "pebble/src/commonMain/kotlin/coredevices/pebble/services"

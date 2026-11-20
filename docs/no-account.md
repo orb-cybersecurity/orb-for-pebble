@@ -81,12 +81,14 @@ which ships only as a prebuilt binary. What remains:
 - "System (On-Device)" under Speech Recognition, using the phone's speech
   recognition app. It needs Android 13 or newer and an app that accepts the audio
   Orb hands it. System/offline dictation is not yet available on GrapheneOS.
-  Rebble dictation works there with a Rebble subscription.
+  Rebble dictation works there with a Rebble subscription. The recognizer app
+  manages its language models.
 
 **Support chat and bug reports to Core.** Core's in-app support chat, its bug
 report upload and the replies it pushes to the phone all use your Core account.
 Orb removes them, including 2.0.0's voice-triggered report upload. Under Get
-Help, Share Logs saves the app and watch logs to a file. It includes local
+Help, Share Logs saves the app and watch logs to a ZIP file. Your problem
+description is saved as `problem-description.txt` inside it. It includes local
 per-app network usage from the last seven days and up to 100 recent watch-setting
 changes made by apps. Check what is in it, then attach it to an issue on Orb's
 GitHub page. Core does not support Orb.
@@ -100,7 +102,8 @@ the project there is usually the way to reach them.
 connections to the watch through `cloudpebble-proxy.repebble.com`, using your
 Core account. Orb never connects to it. Turn on "Use LAN developer connection" in
 settings and connect pebble-tool on the same network instead. It is off by
-default, and any device on that network can then reach the watch.
+default, and any device on that network can then reach the watch. Turning it off
+stops an active developer connection and closes the LAN server.
 
 ## Different source
 

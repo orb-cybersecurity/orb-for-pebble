@@ -98,7 +98,7 @@ class GitHubFirmwareTest {
             release("v4.45.0", bundle = good) to good,
             release("v4.44.0", bundle = pbz("v4.44.0")) to pbz("v4.44.0"),
         )
-        val result = server.api().getLatestFirmware("serial", BOARD, "v4.44.0")
+        val result = server.api().getLatestFirmware(BOARD, "v4.44.0")
         assertEquals("v4.45.0", result?.version)
         assertEquals(
             bundleUrl("v4.45.0") + "#orb-sha256=" + sha256(good).toHexString() + "&orb-github",
@@ -114,7 +114,7 @@ class GitHubFirmwareTest {
             release("v4.45.0", bundle = broken) to broken,
             release("v4.44.0", bundle = pbz("v4.44.0")) to pbz("v4.44.0"),
         )
-        assertNull(server.api().getLatestFirmware("serial", BOARD, "v4.44.0"))
+        assertNull(server.api().getLatestFirmware(BOARD, "v4.44.0"))
     }
 
     @Test
@@ -122,8 +122,8 @@ class GitHubFirmwareTest {
         val good = pbz("v4.46.0")
         val server = FakeGitHub(release("v4.46.0", bundle = good) to good)
         val api = server.api()
-        api.getLatestFirmware("serial", BOARD, "v4.44.0")
-        api.getLatestFirmware("serial", BOARD, "v4.44.0")
+        api.getLatestFirmware(BOARD, "v4.44.0")
+        api.getLatestFirmware(BOARD, "v4.44.0")
         assertEquals(1, server.bundleDownloads)
     }
 
@@ -133,10 +133,10 @@ class GitHubFirmwareTest {
         val older = pbz("v4.44.4")
         val server = FakeGitHub(release("v4.46.0", bundle = newest) to newest, release("v4.44.4", bundle = older) to older)
         val settings = MapSettings(GitHubFirmwareApi.PINNED_FIRMWARE_KEY to "4.44.4")
-        val offer = server.api(settings).getLatestFirmware("serial", BOARD, "v4.46.0")
+        val offer = server.api(settings).getLatestFirmware(BOARD, "v4.46.0")
         assertEquals("v4.44.4", offer?.version)
         assertTrue(offer!!.artifacts.single().url.endsWith("&orb-pinned"))
-        assertNull(server.api(settings).getLatestFirmware("serial", BOARD, "v4.44.4"))
+        assertNull(server.api(settings).getLatestFirmware(BOARD, "v4.44.4"))
     }
 
     @Test
@@ -144,9 +144,9 @@ class GitHubFirmwareTest {
         val broken = pbz("v4.40.0")
         val server = FakeGitHub(release("v4.44.4", bundle = broken) to broken)
         val settings = MapSettings(GitHubFirmwareApi.PINNED_FIRMWARE_KEY to "v4.44.4")
-        assertFailsWith<IllegalStateException> { server.api(settings).getLatestFirmware("serial", BOARD, "v4.46.0") }
+        assertFailsWith<IllegalStateException> { server.api(settings).getLatestFirmware(BOARD, "v4.46.0") }
         val missing = MapSettings(GitHubFirmwareApi.PINNED_FIRMWARE_KEY to "v9.9.9")
-        assertFailsWith<IllegalStateException> { server.api(missing).getLatestFirmware("serial", BOARD, "v4.46.0") }
+        assertFailsWith<IllegalStateException> { server.api(missing).getLatestFirmware(BOARD, "v4.46.0") }
     }
 
     @Test
@@ -156,10 +156,10 @@ class GitHubFirmwareTest {
         val server = FakeGitHub(release("v4.46.0", bundle = newest) to newest, release("v4.45.0", bundle = older) to older)
         server.failingDownloads += bundleUrl("v4.46.0")
         val api = server.api()
-        assertFailsWith<IllegalStateException> { api.getLatestFirmware("serial", BOARD, "v4.44.0") }
+        assertFailsWith<IllegalStateException> { api.getLatestFirmware(BOARD, "v4.44.0") }
         // Not remembered: once the download works, the newest release is offered.
         server.failingDownloads.clear()
-        assertEquals("v4.46.0", api.getLatestFirmware("serial", BOARD, "v4.44.0")?.version)
+        assertEquals("v4.46.0", api.getLatestFirmware(BOARD, "v4.44.0")?.version)
     }
 
     @Test
@@ -167,11 +167,11 @@ class GitHubFirmwareTest {
         val broken = pbz("v4.40.0")
         val server = FakeGitHub(release("v4.46.0", bundle = broken) to broken)
         val api = server.api()
-        assertNull(api.getLatestFirmware("serial", BOARD, "v4.44.0"))
+        assertNull(api.getLatestFirmware(BOARD, "v4.44.0"))
         // Core re-uploads a fixed bundle under the same name and URL.
         val fixed = pbz("v4.46.0")
         server.replace(release("v4.46.0", bundle = fixed) to fixed)
-        assertEquals("v4.46.0", api.getLatestFirmware("serial", BOARD, "v4.44.0")?.version)
+        assertEquals("v4.46.0", api.getLatestFirmware(BOARD, "v4.44.0")?.version)
     }
 
     @Test
@@ -179,8 +179,8 @@ class GitHubFirmwareTest {
         val good = pbz("v4.46.0")
         val server = FakeGitHub(release("v4.46.0", bundle = good) to good)
         val api = server.api()
-        api.getLatestFirmware("serial", BOARD, "v4.44.0")
-        api.getLatestFirmware("serial", BOARD, "v4.44.0")
+        api.getLatestFirmware(BOARD, "v4.44.0")
+        api.getLatestFirmware(BOARD, "v4.44.0")
         assertEquals(1, server.releaseListBodies)
         assertEquals(1, server.notModified)
     }

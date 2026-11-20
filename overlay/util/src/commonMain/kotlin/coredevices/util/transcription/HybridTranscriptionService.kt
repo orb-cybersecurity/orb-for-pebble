@@ -1,16 +1,13 @@
 package coredevices.util.transcription
 
 import co.touchlab.kermit.Logger
-import coredevices.util.AudioEncoding
 import coredevices.util.CoreConfigFlow
 import coredevices.util.models.CactusSTTMode
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Duration
 import kotlin.time.TimeSource
 
 /**
@@ -41,20 +38,12 @@ class HybridTranscriptionService(
     val lastSuccessfulMode get() = _lastSuccessfulMode
     val lastModelUsed get() = _lastModelUsed
 
-    override val onInitialized: Channel<Boolean> = Channel(Channel.CONFLATED)
-
     override suspend fun isAvailable(): Boolean = platform.isAvailable() && platform.isAuthorized()
 
     override suspend fun transcribe(
         audioStreamFrames: Flow<ByteArray>?,
         sampleRate: Int,
         language: STTLanguage,
-        conversationContext: STTConversationContext?,
-        dictionaryContext: List<String>?,
-        contentContext: String?,
-        encoding: AudioEncoding,
-        initialTimeout: Duration?,
-        totalTimeout: Duration?,
     ): Flow<TranscriptionSessionStatus> = flow {
         val start = TimeSource.Monotonic.markNow()
         emit(TranscriptionSessionStatus.Open)

@@ -1052,17 +1052,6 @@ fun WatchMenu(watch: PebbleDevice, navBarNav: NavBarNav) {
                                 )
                             }
                         }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp, vertical = 12.dp)
-                                .fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Connected to CloudPebble",
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
                     }
                 }
                 HorizontalDivider()

@@ -62,10 +62,8 @@ class GitHubFirmwareApi(
     private var recentReleases: Pair<String, List<GitHubRelease>>? = null
 
     override suspend fun getLatestFirmware(
-        deviceSerial: String,
         hardwareVersion: String,
         currentVersion: String?,
-        deviceMac: String?,
     ): EngDashLatestResult? = mutex.withLock {
         val pinned = settings.getStringOrNull(PINNED_FIRMWARE_KEY)?.takeIf { it.isNotBlank() }
         if (pinned != null) {

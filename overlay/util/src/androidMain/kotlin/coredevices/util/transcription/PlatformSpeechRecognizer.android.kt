@@ -15,7 +15,6 @@ import android.speech.RecognitionService
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import co.touchlab.kermit.Logger
-import coredevices.util.models.ModelDownloadStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,16 +55,6 @@ actual class PlatformSpeechRecognizer {
 
     // Recognizer apps don't report their languages up front; empty means "not known".
     actual val supportedLanguageTags: StateFlow<List<String>> = MutableStateFlow(emptyList())
-
-    // The recognizer app manages its own models.
-    actual suspend fun modelAvailability(languageTag: String?): SpeechModelAvailability =
-        if (isAvailable()) SpeechModelAvailability.Installed else SpeechModelAvailability.Unsupported
-
-    actual val downloadStatus: StateFlow<ModelDownloadStatus> = MutableStateFlow(ModelDownloadStatus.Idle)
-
-    actual fun downloadModel(languageTag: String?): Boolean = false
-
-    actual fun releaseUnusedModels(languageTag: String?) = Unit
 
     actual suspend fun transcribe(pcm: ByteArray, sampleRate: Int, languageTag: String?): String {
         val service = recognitionService()

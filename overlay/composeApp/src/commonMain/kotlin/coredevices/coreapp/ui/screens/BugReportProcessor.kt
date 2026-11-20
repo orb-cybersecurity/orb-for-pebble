@@ -6,11 +6,9 @@ import com.oldguy.common.io.File
 import com.oldguy.common.io.FileMode
 import com.oldguy.common.io.ZipEntry
 import com.oldguy.common.io.ZipFile
-import com.russhwolf.settings.Settings
 import coredevices.CoreBackgroundSync
 import coredevices.coreapp.util.FileLogWriter
 import coredevices.coreapp.util.generateDeviceSummaryPlatformDetails
-import coredevices.coreapp.util.getLogsCacheDir
 import coredevices.pebble.PebbleAppDelegate
 import coredevices.util.CompanionDevice
 import coredevices.util.CoreConfigFlow
@@ -40,8 +38,6 @@ import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
-import kotlinx.io.readString
-import kotlinx.io.writeString
 import org.koin.mp.KoinPlatform
 import size
 import kotlin.time.Clock
@@ -49,24 +45,17 @@ import kotlin.time.Instant
 
 data class BugReportGenerationParams(
     val userMessage: String,
-    val userName: String?,
-    val userEmail: String?,
     val screenContext: String,
     val attachments: List<DocumentAttachment>,
     val imageAttachments: List<DocumentAttachment>,
     val fetchPebbleLogs: Boolean,
     val fetchPebbleCoreDump: Boolean,
-    val shareLocally: Boolean,
 )
 
 sealed class BugReportState {
     data object Creating : BugReportState()
     data object GatheringWatchLogs : BugReportState()
-    data object UploadingAttachments : BugReportState()
-    sealed class BugReportResult : BugReportState() {
-        data class Success(val bugReportId: String? = null) : BugReportResult()
-        data class Failed(val error: String) : BugReportResult()
-    }
+    data class Failed(val error: String) : BugReportState()
     data class ReadyToShare(
         val name: String,
         val file: Path,
@@ -79,7 +68,6 @@ class BugReportProcessor(
     private val clock: Clock,
     private val appContext: AppContext,
     private val coreBackgroundSync: CoreBackgroundSync,
-    private val settings: Settings,
     private val libPebble: LibPebble,
     private val coreConfigFlow: CoreConfigFlow,
     private val permissionRequester: PermissionRequester,
@@ -157,25 +145,6 @@ class BugReportProcessor(
         }
     }
 
-    private suspend fun createSummaryAttachment(attachments: List<DocumentAttachment>): DocumentAttachment {
-        val summaryWithAttachmentCount =
-            createSummary("", attachments)
-        val logsDir = Path(getLogsCacheDir())
-        if (!SystemFileSystem.exists(logsDir)) {
-            SystemFileSystem.createDirectories(logsDir)
-        }
-        val summaryFile = Path(getLogsCacheDir() + "/summary.txt")
-        SystemFileSystem.sink(summaryFile, append = false).buffered().use { sink ->
-            sink.writeString(summaryWithAttachmentCount)
-        }
-        return DocumentAttachment(
-            fileName = "bugreport_summary.txt",
-            mimeType = "text/plain",
-            source = SystemFileSystem.source(summaryFile).buffered(),
-            size = summaryFile.size(),
-        )
-    }
-
     private suspend fun createSummary(
         screenContext: String,
         attachments: List<DocumentAttachment>,
@@ -209,7 +178,7 @@ class BugReportProcessor(
 
     /**
      * Orb: the report becomes a zip file for the user to share. Core's upload to its support
-     * backend needs a Core account, so it is removed; `params.shareLocally` is always true.
+     * backend needs a Core account and is removed.
      */
     fun newBugReport(params: BugReportGenerationParams): Flow<BugReportState> {
         val state = MutableSharedFlow<BugReportState>(replay = 1, extraBufferCapacity = Int.MAX_VALUE)
@@ -219,7 +188,7 @@ class BugReportProcessor(
                 state.tryEmit(createReportFile(params, state))
             } catch (e: Exception) {
                 logger.e(e) { "Unhandled exception in bug report processing" }
-                state.tryEmit(BugReportState.BugReportResult.Failed("An unexpected error occurred"))
+                state.tryEmit(BugReportState.Failed("An unexpected error occurred"))
             }
         }
         return state
@@ -245,7 +214,6 @@ class BugReportProcessor(
         val timestamp = clock.now()
         val filename = "bug-report-$timestamp.zip"
         val bugReportFile = getTempFilePath(appContext, filename, "bugreports")
-        val zipFile = ZipFile(File(bugReportFile.toString()), mode = FileMode.Write)
         val summaryByteArray = summaryWithAttachmentCount.encodeToByteArray()
         val localAttachments = attachments + DocumentAttachment(
             fileName = "summary.json",
@@ -253,18 +221,8 @@ class BugReportProcessor(
             source = sourceFromByteArray(summaryByteArray),
             size = summaryByteArray.size.toLong(),
         )
-        zipFile.use {
-            localAttachments.forEach {
-                zipFile.addEntry(ZipEntry(it.fileName), { it.source.readByteArray() })
-            }
-        }
+        writeBugReportZip(bugReportFile, params.userMessage, localAttachments)
         return BugReportState.ReadyToShare(name = filename, file = bugReportFile)
-    }
-
-    fun sourceFromByteArray(byteArray: ByteArray): Source {
-        val buffer = Buffer()
-        buffer.write(byteArray)
-        return buffer
     }
 
     private suspend fun gatherAttachments(
@@ -367,21 +325,21 @@ class BugReportProcessor(
 
 }
 
-fun Path?.readMostRecent(bytes: Int): String? {
-    if (this == null) return null
-    return try {
-        SystemFileSystem.source(this).buffered().use { source ->
-            val size = SystemFileSystem.metadataOrNull(this)?.size ?: 0
-            val offset = maxOf(0, size - bytes)
-            source.skip(offset)
-            source.readString()
+private const val BUG_REPORT_USAGE_DAYS = 7
+private const val BUG_REPORT_WATCH_SETTINGS_CHANGES = 100
+
+/** Write the description verbatim, including Unicode and line breaks, alongside the logs. */
+internal suspend fun writeBugReportZip(file: Path, description: String, attachments: List<DocumentAttachment>) {
+    ZipFile(File(file.toString()), mode = FileMode.Write).use { zip ->
+        sourceFromByteArray(description.encodeToByteArray()).use { source ->
+            zip.addEntry(ZipEntry("problem-description.txt"), { source.readByteArray() })
         }
-    } catch (e: Exception) {
-        Logger.e(e) { "Failed to read most recent $bytes bytes from $this" }
-        null
+        attachments.forEach { attachment ->
+            attachment.source.use { source ->
+                zip.addEntry(ZipEntry(attachment.fileName), { source.readByteArray() })
+            }
+        }
     }
 }
 
-
-private const val BUG_REPORT_USAGE_DAYS = 7
-private const val BUG_REPORT_WATCH_SETTINGS_CHANGES = 100
+private fun sourceFromByteArray(bytes: ByteArray): Source = Buffer().apply { write(bytes) }
