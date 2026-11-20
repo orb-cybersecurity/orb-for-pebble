@@ -18,6 +18,7 @@ import kotlin.test.assertTrue
 
 class ImageReadResourcesTest {
     @Test fun hungProvidersCannotOccupyMoreThanTwoWorkersAndQueuedReadsExpire() = runBlocking {
+        awaitIdleImageReads()
         val release = CountDownLatch(1)
         val started = CountDownLatch(2)
         val finished = CountDownLatch(2)
@@ -40,6 +41,41 @@ class ImageReadResourcesTest {
             assertTrue(reads.awaitAll().all { it == null })
             assertEquals(2, peak.get())
             assertEquals(2, calls.get())
+        } finally {
+            release.countDown()
+            assertTrue(finished.await(5, TimeUnit.SECONDS))
+        }
+        // Finished reads return their slots.
+        awaitIdleImageReads()
+        assertEquals("ok", readImageWithTimeout(1_000) { "ok" })
+    }
+
+    private fun awaitIdleImageReads() {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (readsInFlight.get() != 0 && System.nanoTime() < deadline) Thread.sleep(10)
+        assertEquals(0, readsInFlight.get())
+    }
+
+    @Test fun readsBeyondTheLimitGiveUpWithoutWaiting() = runBlocking<Unit> {
+        awaitIdleImageReads()
+        val release = CountDownLatch(1)
+        val started = CountDownLatch(2)
+        val finished = CountDownLatch(2)
+        try {
+            val pinned = List(2) {
+                async {
+                    readImageWithTimeout(5_000) {
+                        started.countDown()
+                        try { release.await(); "late" } finally { finished.countDown() }
+                    }
+                }
+            }
+            assertTrue(withContext(Dispatchers.Default) { started.await(5, TimeUnit.SECONDS) })
+            val before = System.nanoTime()
+            assertNull(readImageWithTimeout(5_000) { "never runs" })
+            assertTrue(System.nanoTime() - before < TimeUnit.SECONDS.toNanos(1))
+            release.countDown()
+            pinned.awaitAll()
         } finally {
             release.countDown()
             assertTrue(finished.await(5, TimeUnit.SECONDS))

@@ -2,12 +2,13 @@ package io.rebble.libpebblecommon.imaging
 
 import java.io.Closeable
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 /** Own descriptors even when cancellation races a provider returning from open(). */
 internal class ImageReadResources : Closeable {
@@ -33,27 +34,38 @@ internal class ImageReadResources : Closeable {
     }
 }
 
-// One shared, elastic IO view: uncooperative providers can pin at most two workers,
-// without consuming the general IO dispatcher's parallelism budget.
-private val imageReads = Dispatchers.IO.limitedParallelism(2)
+private const val MAX_IMAGE_READS = 2
+internal val readsInFlight = AtomicInteger()
+// Never cancelled, so every started read reaches its finally and returns its slot.
+private val imageReads = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-/** A blocking provider must not hold up the serial consumer after its deadline. */
+/**
+ * A blocking provider must not hold up the serial consumer after its deadline. Hung providers
+ * can hold at most [MAX_IMAGE_READS] threads; further reads give up at once instead of queueing,
+ * and a read in progress keeps only its own resources, never the caller.
+ */
 internal suspend fun <T> readImageWithTimeout(
     timeoutMs: Long = 2_000,
     read: (ImageReadResources) -> T?,
-): T? = withTimeoutOrNull(timeoutMs) {
-    suspendCancellableCoroutine { continuation ->
-        val resources = ImageReadResources()
-        // Deliberately independent of the caller's Job: a provider may ignore cancellation
-        // during open(). Any descriptor it eventually returns is closed by track().
-        val job = CoroutineScope(imageReads).launch {
-            val result = try { read(resources) } catch (_: Exception) { null }
-            finally { resources.close() }
-            continuation.resume(result)
-        }
-        continuation.invokeOnCancellation {
-            job.cancel() // Discard reads still queued behind a hung provider.
+): T? {
+    if (readsInFlight.incrementAndGet() > MAX_IMAGE_READS) {
+        readsInFlight.decrementAndGet()
+        return null
+    }
+    val resources = ImageReadResources()
+    val result = CompletableDeferred<T?>()
+    imageReads.launch {
+        try { result.complete(read(resources)) }
+        catch (_: Exception) { result.complete(null) }
+        finally {
             resources.close()
+            readsInFlight.decrementAndGet()
         }
+    }
+    try {
+        return withTimeoutOrNull(timeoutMs) { result.await() }
+    } finally {
+        // Unblocks a provider read in progress; a descriptor it returns later is closed by track().
+        if (!result.isCompleted) resources.close()
     }
 }

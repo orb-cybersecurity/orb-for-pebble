@@ -4649,6 +4649,7 @@ def apply(extra_abis: list[str]) -> None:
     fix_final_release_findings()
     fix_runtime_release_findings()
     fix_round6_findings()
+    match_permission_setting_label()
 
     if extra_abis:
         edit(
@@ -5842,6 +5843,13 @@ import kotlinx.coroutines.flow.Flow''')
     replace_literal(store, 'private fun NotificationImage.decode(', 'private suspend fun NotificationImage.decode(')
     replace_literal(store, 'io.rebble.libpebblecommon.imaging.boundedImage(context, source.uri)',
         'io.rebble.libpebblecommon.imaging.readImageWithTimeout { resources ->\n                io.rebble.libpebblecommon.imaging.boundedImage(context, source.uri, resources)\n            }')
+
+
+def match_permission_setting_label() -> None:
+    """The policy help names the older-apps toggle by the label Orb gives it."""
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/PermissionsIntro.kt',
+                    '\\"Ask before older apps use permissions\\"',
+                    '\\"Ask before older apps use other permissions\\"')
 
 
 def fit_delegate_call() -> None:

@@ -29,9 +29,10 @@ internal suspend fun notificationImageDimensions(context: Context, uri: Uri): Pa
         }
         if (bounds.outWidth !in 1..8192 || bounds.outHeight !in 1..8192 ||
             bounds.outWidth.toLong() * bounds.outHeight > 32L * 1024 * 1024) return@readImageWithTimeout null
-        val (exif, exifLength) = openImageStream(context, uri, resources) ?: return@readImageWithTimeout null
+        val (exif, _) = openImageStream(context, uri, resources) ?: return@readImageWithTimeout null
         val orientation = exif.use { source ->
-            (if (exifLength < 0) EncodedImageInputStream(source) else ImageSliceInputStream(source, total)).use {
+            // ExifInterface sizes its parse by available(); the slice reports the counted bytes.
+            ImageSliceInputStream(source, total).use {
                 ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
             }
         }

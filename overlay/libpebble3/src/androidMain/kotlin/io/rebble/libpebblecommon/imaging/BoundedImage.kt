@@ -11,7 +11,8 @@ import java.io.InputStream
 /** Resource URIs may be compressed; only content providers support cancellable descriptor opens. */
 internal fun openImageStream(context: Context, uri: Uri, resources: ImageReadResources): Pair<InputStream, Long>? {
     if (uri.scheme == "android.resource") {
-        return context.contentResolver.openInputStream(uri)?.let { resources.track(it) to -1L }
+        // Local and never blocking. Not tracked: an asset stream is unsafe to close from another thread.
+        return context.contentResolver.openInputStream(uri)?.let { it to -1L }
     }
     if (uri.scheme != "content") return null
     val signal = CancellationSignal()
