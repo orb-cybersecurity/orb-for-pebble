@@ -55,12 +55,14 @@ internal suspend fun <T> readImageWithTimeout(
     val resources = ImageReadResources()
     val result = CompletableDeferred<T?>()
     imageReads.launch {
-        try { result.complete(read(resources)) }
-        catch (_: Exception) { result.complete(null) }
+        val value = try { read(resources) }
+        catch (_: Exception) { null }
         finally {
             resources.close()
+            // Return the slot before the caller resumes, so its next read is not refused.
             readsInFlight.decrementAndGet()
         }
+        result.complete(value)
     }
     try {
         return withTimeoutOrNull(timeoutMs) { result.await() }

@@ -83,6 +83,7 @@ class ImageReadResourcesTest {
     }
 
     @Test fun timeoutClosesABlockedReadAndReleasesTheCaller() = runBlocking {
+        awaitIdleImageReads()
         val closed = CountDownLatch(1)
         val finished = CountDownLatch(1)
         val result = readImageWithTimeout(500) { resources ->
