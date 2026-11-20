@@ -34,6 +34,9 @@ APP_LABEL = "Orb"
 # Upstream files the overlay replaces outright, with the sha256 of the upstream version each
 # replacement was written against.
 REPLACED = {
+    'pebble/src/androidMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.android.kt': '0feeaeb7072ca4bd3856a3febf3547af9a53340889666ede463497ad1fd2df87',
+    'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitClassicStartListeners.kt': '247f94341bb8d647a375a213ae732ad5b59ed0c1f053ebae3155ae7382b14d07',
+    'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/web/FirmwareDownloader.kt': '44fba7bd14972ed37e170b1456b1435235cc99b9383d3560fe2257585594455b',
     "util/src/androidMain/kotlin/AppUpdate.android.kt":
         "aee44639f643a51315264b1cb1d682bbd994711f3e94f68bcda519be60b856ec",
     "util/src/androidMain/kotlin/coredevices/util/transcription/PlatformSpeechRecognizer.android.kt":
@@ -806,13 +809,6 @@ def confirm_external_input() -> None:
     - One request at a time, each in its own file, so what the user approves is what installs.
     The dialogs for boot configs and language packs are in Orb's WatchHomeScreen.kt overlay.
     """
-    # Every file opened from outside gets its own path; a later one can't overwrite it.
-    replace_literal(
-        "pebble/src/androidMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.android.kt",
-        'val fileToWrite = getTempFilePath(appContext, "sideloaded_file")',
-        'val fileToWrite = getTempFilePath(appContext, "sideloaded_file_${kotlin.uuid.Uuid.random()}")',
-    )
-
     handler = "pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt"
     replace_literal(handler, "    val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload?>\n", """\
     val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload?>
@@ -1940,6 +1936,1534 @@ def remove_google_fit() -> None:
          r"\1")
 
 
+def harden_orb_release() -> None:
+    """Release input, IPC, permission and credential boundaries."""
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        '    fun confirmPendingFirmwareSideload()',
+        '    fun confirmPendingFirmwareSideload(expected: PendingFirmwareSideload)',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+        if (path != null) {
+            firmwareUpdateUiTracker.updateWatchNow(libPebble, path.removePrefix("/").removeSuffix("/"))
+        }
+""",
+        '',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+        val previous = _pendingFirmwareSideload.value
+        val reserved = reserveSideloadCopy(file)
+        _pendingFirmwareSideload.value = PendingFirmwareSideload(reserved, fileName)
+        previous?.takeIf { it.file != reserved }
+            ?.let { SystemFileSystem.delete(it.file, mustExist = false) }
+""",
+        """\
+        val pending = PendingFirmwareSideload(file, orbDisplayName(fileName))
+        if (!_pendingFirmwareSideload.compareAndSet(null, pending)) {
+            SystemFileSystem.delete(file, mustExist = false)
+            return false
+        }
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+    override fun confirmPendingFirmwareSideload() {
+        val pending = _pendingFirmwareSideload.value ?: return
+        _pendingFirmwareSideload.value = null
+        sideloadFirmware(pending.file)
+""",
+        """\
+    override fun confirmPendingFirmwareSideload(expected: PendingFirmwareSideload) {
+        if (!_pendingFirmwareSideload.compareAndSet(expected, null)) return
+        sideloadFirmware(expected.file)
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+        if (_pendingLanguagePack.value != null) {
+            SystemFileSystem.delete(file, mustExist = false)
+            return false
+        }
+        _pendingLanguagePack.value = PendingLanguagePack(file, orbDisplayName(name))
+""",
+        """\
+        if (!_pendingLanguagePack.compareAndSet(null, PendingLanguagePack(file, orbDisplayName(name)))) {
+            SystemFileSystem.delete(file, mustExist = false)
+            return false
+        }
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+        _pendingAppSideload.value = file
+""",
+        """\
+        if (!_pendingAppSideload.compareAndSet(null, file)) {
+            SystemFileSystem.delete(file, mustExist = false)
+            return false
+        }
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt',
+        '        override fun confirmPendingFirmwareSideload() {}',
+        '        override fun confirmPendingFirmwareSideload(expected: coredevices.pebble.PendingFirmwareSideload) {}',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+import kotlinx.coroutines.GlobalScope
+""",
+        """\
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+    override fun handle(uri: Uri?): Boolean {
+""",
+        """\
+    private val importLock = Semaphore(1)
+    private var importing = false
+
+    override fun handle(uri: Uri?): Boolean {
+        uri ?: return false
+        val isFile = uri.scheme == "content" || uri.lastPathSegment?.let {
+            it.endsWith(".pbw") || it.endsWith(".pbz") || it.endsWith(".pbl")
+        } == true
+        if (isFile) {
+            // handle() is an Activity entry point on the main thread.
+            if (importing || _pendingFirmwareSideload.value != null ||
+                _pendingLanguagePack.value != null || _pendingAppSideload.value != null) return false
+            importing = true
+            GlobalScope.launch(Dispatchers.IO) {
+                try { importLock.withPermit { handleNow(uri) } }
+                finally { importing = false }
+            }
+            return true
+        }
+        return handleNow(uri)
+    }
+
+    private fun handleNow(uri: Uri?): Boolean {
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+    private fun reserveSideloadCopy(shared: Path): Path {
+        val directory = shared.parent ?: return shared
+        if (reservedSideloadCount == 0) {
+            sweepStaleSideloadCopies(directory)
+        }
+        val reserved = Path(directory, "$RESERVED_SIDELOAD_PREFIX${reservedSideloadCount++}.pbz")
+        return try {
+            SystemFileSystem.delete(reserved, mustExist = false)
+            SystemFileSystem.atomicMove(shared, reserved)
+            reserved
+        } catch (e: Exception) {
+            logger.w(e) { "reserveSideloadCopy: falling back to the shared path" }
+            shared
+        }
+    }
+
+    private fun sweepStaleSideloadCopies(directory: Path) {
+        try {
+            SystemFileSystem.list(directory)
+                .filter { it.name.startsWith(RESERVED_SIDELOAD_PREFIX) }
+                .forEach { SystemFileSystem.delete(it, mustExist = false) }
+        } catch (e: Exception) {
+            logger.w(e) { "sweepStaleSideloadCopies failed" }
+        }
+    }
+
+""",
+        '',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+    private var reservedSideloadCount = 0
+""",
+        '',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+        private const val RESERVED_SIDELOAD_PREFIX = "pending_sideload_"
+""",
+        '',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'logger.v { "handleContentFallback() $uri" }',
+        'logger.v { "content import" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'logger.w { "handleContentFallback: couldn\'t get name for $uri" }',
+        'logger.w { "content import: missing name" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'logger.d { "filename: $name" }',
+        'logger.d { "content import: name resolved" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'logger.v { "handleLanguagePack() $uri" }',
+        'logger.v { "language pack import" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'logger.v { "handleFirmware() $uri" }',
+        'logger.v { "firmware import" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'logger.v { "handleApp() $uri" }',
+        'logger.v { "watchapp import" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/PebbleAccount.kt',
+        'import kotlinx.serialization.SerialName',
+        """\
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/PebbleAccount.kt',
+        '    override suspend fun setToken(token: String?, bootUrl: String?) {',
+        """\
+    private val identityLock = Mutex()
+
+    private fun clearIdentity() {
+        settings.remove(DEV_KEY)
+        _devToken.value = null
+    }
+
+    override suspend fun setToken(token: String?, bootUrl: String?) = identityLock.withLock {
+        clearIdentity()\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/PebbleAccount.kt',
+        """\
+        setDevPortalId()
+""",
+        """\
+        if (token != null) fetchDevPortalId()
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/PebbleAccount.kt',
+        '    override suspend fun setDevPortalId() {',
+        """\
+    override suspend fun setDevPortalId() = identityLock.withLock {
+        clearIdentity()
+        if (_loggedIn.value != null) fetchDevPortalId()
+    }
+
+    private suspend fun fetchDevPortalId() {\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/BootConfig.kt',
+        'logger.d("setUrl $url")',
+        'logger.d("boot URL changed")',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/BootConfig.kt',
+        'logger.d("got bootconfig: $bootConfig")',
+        'logger.d("boot configuration received")',
+    )
+    replace_literal(
+        'composeApp/src/androidMain/kotlin/coredevices/coreapp/MainActivity.kt',
+        'logger.d { "handleIntent uri = $uri" }',
+        'logger.d { "incoming link host=${uri?.host?.takeIf { Regex("[A-Za-z0-9.-]{1,253}").matches(it) }.orEmpty()}" }',
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/permissions/AppPermissions.kt',
+        '    if (subject.legacy && !config.askLegacyAppsForPermissions && isLegacyImplicit(permission, subject.hasAndroidCompanion)) {',
+        """\
+    if (subject.legacy && permission in setOf(PluginPermissions.GLOBAL_INTERNET, PluginPermissions.LOCATION)) {
+        return PermissionDecision.NeedsApproval
+    }
+    if (subject.legacy && !config.askLegacyAppsForPermissions && isLegacyImplicit(permission, subject.hasAndroidCompanion)) {\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/permissions/AppPermissions.kt',
+        '        config.permissionPolicy == PermissionPolicy.NeverAsk &&',
+        """\
+        !(subject.legacy && permission in setOf(PluginPermissions.GLOBAL_INTERNET, PluginPermissions.LOCATION)) &&
+        config.permissionPolicy == PermissionPolicy.NeverAsk &&\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt',
+        'title = "Ask before older apps use permissions"',
+        'title = "Ask before older apps use other permissions"',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchSettingsScreen.kt',
+        'description = "Otherwise apps built before permissions keep the access they\'ve always had. They can never get more access without updating. Some older apps may break, particularly ones that use health data"',
+        'description = "Network and location always require approval. Also ask older apps before other access, including health data. Some older apps may break"',
+    )
+    replace_literal(
+        'androidApp/src/main/res/xml/network_security_config.xml',
+        """\
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allow user-installed CA certificates to be trusted in addition to the system
+  CA store. Since Android 7.0 (API 24), apps only trust the system store by
+  default, so PKJS apps connecting to self-hosted servers with a self-signed or
+  private-CA cert (e.g. Home Assistant over wss://) fail to connect even after
+  the user installs and trusts the cert on their device.
+-->
+<network-security-config>
+    <!-- HTTPS only, for Orb and for watchapps. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
+""",
+        """\
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleSenderReceiver.kt',
+        'import io.rebble.libpebblecommon.connection.ConnectedPebbleDevice',
+        """\
+import android.content.Intent
+import android.os.Binder
+import android.os.Bundle
+import android.os.IBinder
+import io.rebble.pebblekit2.common.UniversalRequestResponse
+import io.rebble.pebblekit2.common.SendDataCallback
+import io.rebble.pebblekit2.common.model.toBundle
+import io.rebble.libpebblecommon.pebblekit.PebbleKitAuthorization
+import kotlinx.coroutines.launch
+import io.rebble.libpebblecommon.connection.ConnectedPebbleDevice\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleSenderReceiver.kt',
+        '    override suspend fun sendDataToPebble(',
+        """\
+    override fun onBind(intent: Intent?): IBinder {
+        val original = UniversalRequestResponse.Stub.asInterface(super.onBind(intent))
+        return object : UniversalRequestResponse.Stub() {
+            override fun request(data: Bundle, callback: SendDataCallback) {
+                val action = data.getString("ACTION")
+                if (action != "START_APP" && action != "STOP_APP") {
+                    original.request(data, callback)
+                    return
+                }
+                val callers = packageManager.getPackagesForUid(Binder.getCallingUid()).orEmpty().toList()
+                val uuid = data.getString("WATCHAPP_UUID")?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                val targets = data.getStringArray("WATCHES_ID")?.map { WatchIdentifier(it) }
+                coroutineScope.launch {
+                    val allowed = uuid != null && PebbleKitAuthorization.allowed(callers, uuid.toKotlinUuid())
+                    val result = runOnConnectedWatches(targets) { watch ->
+                        if (!allowed) TransmissionResult.FailedNoPermissions
+                        else {
+                            if (action == "START_APP") watch.launchApp(uuid!!.toKotlinUuid())
+                            else watch.stopApp(uuid!!.toKotlinUuid())
+                            TransmissionResult.Success
+                        }
+                    }
+                    val serialized = Bundle().apply {
+                        result.forEach { (watch, status) -> putBundle(watch.value, status.toBundle()) }
+                    }
+                    try { callback.onResult(Bundle().apply { putBundle("TRANSMISSION_RESULTS", serialized) }) }
+                    catch (_: android.os.RemoteException) { /* Caller went away. */ }
+                }
+            }
+        }
+    }
+
+    override suspend fun sendDataToPebble(\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleSenderReceiver.kt',
+        """\
+            it.launchApp(watchappUUID.toKotlinUuid())
+            TransmissionResult.Success\
+""",
+        '            TransmissionResult.FailedNoPermissions',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleSenderReceiver.kt',
+        """\
+            it.stopApp(watchappUUID.toKotlinUuid())
+            TransmissionResult.Success\
+""",
+        '            TransmissionResult.FailedNoPermissions',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleSenderReceiver.kt',
+        """\
+        if (pkg == null) {
+            return false
+        }
+
+        val lockerEntry = locker.getLockerApp(uuid.toKotlinUuid()).firstOrNull() ?: return false
+        val pbwInfo = PbwApp(
+            lockerPBWCache.getPBWFileForApp(
+                lockerEntry.properties.id,
+                lockerEntry.properties.version.orEmpty(),
+                locker
+            )
+        )
+
+        return pkg in pbwInfo.info.pebbleKit2Packages() &&
+            permissions.request(uuid.toKotlinUuid(), pebbleKit2Key(pkg)) == PermissionDecision.Granted\
+""",
+        '        return pkg != null && PebbleKitAuthorization.allowed(listOf(pkg), uuid.toKotlinUuid())',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleKitProvider.kt',
+        'import io.rebble.libpebblecommon.connection.ConnectedPebbleDevice',
+        """\
+import android.database.Cursor
+import android.net.Uri
+import android.os.Binder
+import io.rebble.libpebblecommon.pebblekit.PebbleKitAuthorization
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import io.rebble.libpebblecommon.connection.ConnectedPebbleDevice\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleKitProvider.kt',
+        '   override fun getConnectedWatches()',
+        """\
+   override fun query(uri: Uri, projection: Array<out String>?, selection: String?,
+                      selectionArgs: Array<out String>?, sortOrder: String?): Cursor? {
+      val callers = context?.packageManager?.getPackagesForUid(Binder.getCallingUid()).orEmpty().toList()
+      if (!runBlocking(Dispatchers.IO) { PebbleKitAuthorization.associated(callers) }) return null
+      return super.query(uri, projection, selection, selectionArgs, sortOrder)
+   }
+
+   override fun getConnectedWatches()\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/PKJSApp.kt',
+        '    private var jsRunner: JsRunner? = null',
+        """\
+    private val externalConfig = ExternalConfigRequest()
+
+    fun closeExternalConfig(state: String?, data: String): Boolean {
+        if (!externalConfig.consume(state)) return false
+        triggerOnWebviewClosed(data)
+        return true
+    }
+
+    private var jsRunner: JsRunner? = null\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/PKJSApp.kt',
+        '    suspend fun requestConfigurationUrl(): String? {',
+        """\
+    suspend fun requestConfigurationUrl(): String? {
+        externalConfig.clear()\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/PKJSApp.kt',
+        '        return if (jsRunner.mayOpen(received)) received else null',
+        """\
+        if (!jsRunner.mayOpen(received)) return null
+        val state = externalConfig.begin()
+        return io.ktor.http.URLBuilder(received).apply {
+            parameters.remove("orb_state")
+            parameters.remove("return_to")
+            parameters.append("orb_state", state)
+            parameters.append("return_to", "pebblejs://close?orb_state=$state")
+        }.buildString()\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/PKJSApp.kt',
+        '    override suspend fun stop() {',
+        """\
+    override suspend fun stop() {
+        externalConfig.clear()\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/PKJSApp.kt',
+        '    fun triggerOnWebviewClosed(data: String) {',
+        """\
+    fun triggerOnWebviewClosed(data: String) {
+        externalConfig.clear()\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+                libPebble.watches.value
+                    .filterIsInstance<ConnectedPebbleDevice>()
+                    .firstOrNull { it.currentPKJSSession.value != null }
+                    ?.currentPKJSSession
+                    ?.value
+                    ?.triggerOnWebviewClosed(data) ?: run {
+                        logger.w { "No PKJS session found, cannot handle webview close" }
+                        return false
+                    }\
+""",
+        """\
+                val state = uri.getQueryParameter("orb_state") ?: return false
+                val accepted = libPebble.watches.value.filterIsInstance<ConnectedPebbleDevice>().any {
+                    it.currentPKJSSession.value?.closeExternalConfig(state, data) == true
+                }
+                if (!accepted) return false\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'uri.host?.startsWith("close") == true',
+        'uri.host == "close"',
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/permissions/NetworkGate.kt',
+        '    suspend fun check(url: String, wait: Boolean): PluginNetworkVerdict',
+        """\
+    suspend fun check(url: String, wait: Boolean): PluginNetworkVerdict
+    fun changes(): kotlinx.coroutines.flow.Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/permissions/NetworkGate.kt',
+        """\
+) : NetworkAccess {
+""",
+        """\
+) : NetworkAccess {
+    override fun changes(): kotlinx.coroutines.flow.Flow<Unit> =
+        kotlinx.coroutines.flow.merge(
+            permissions.permissionDecisions().map { Unit },
+            permissions.statuses(appUuid).map { Unit },
+        )
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/permissions/NetworkGate.kt',
+        'import kotlin.uuid.Uuid',
+        """\
+import kotlinx.coroutines.flow.map
+import kotlin.uuid.Uuid\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+        'import kotlinx.coroutines.launch',
+        """\
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.onStart\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+        '            Instance(++lastInstance, url, protocols, headers).also { instances[it.id] = it }',
+        """\
+            check(instances.size < 16) { "Too many sockets" }
+            Instance(++lastInstance, url, protocols, headers).also { instances[it.id] = it }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+        '        private val outgoing = Channel<Frame>(Channel.UNLIMITED)',
+        '        private val outgoing = Channel<Frame>(64)',
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+        '            job.value = scope.launch { run() }',
+        """\
+            job.value = scope.launch {
+                coroutineScope {
+                    val connection = launch { run() }
+                    val revocation = launch {
+                        networkAccess.changes().collect {
+                            if (networkAccess.check(url, wait = false) is PluginNetworkVerdict.Denied) connection.cancel()
+                        }
+                    }
+                    try { connection.join() } finally { revocation.cancel() }
+                }
+            }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+        """\
+                        for (frame in outgoing) {
+                            ws.send(frame)\
+""",
+        """\
+                        for (frame in outgoing) {
+                            if (networkAccess.check(url, wait = false) is PluginNetworkVerdict.Denied) {
+                                ws.cancel(); break
+                            }
+                            ws.send(frame)\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+        '                    for (frame in ws.incoming) {',
+        """\
+                    for (frame in ws.incoming) {
+                        if (networkAccess.check(url, wait = false) is PluginNetworkVerdict.Denied) {
+                            ws.cancel(); break
+                        }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt',
+        'logger.w(e) { "$appUuid websocket to $url failed: ${e.message}" }',
+        'logger.w { "watchapp websocket failed" }',
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/GeolocationInterface.kt',
+        'import kotlinx.coroutines.Job',
+        """\
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/GeolocationInterface.kt',
+        '    private val watchJobs = mutableMapOf<Int, Job>()',
+        """\
+    private val watchJobs = mutableMapOf<Int, Job>()
+    private val watchLock = SynchronizedObject()\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/GeolocationInterface.kt',
+        """\
+        val job = scope.launch {
+            if (!geolocationPermissionGranted()) {
+                triggerPositionResultWatch(id.toInt(), GeolocationPositionResult.Error("Location permission not granted"))
+                return@launch
+            }
+            systemGeolocation.watchPosition(interval.coerceAtLeast(200.0).milliseconds, highAccuracyBool).collect { result ->
+                triggerPositionResultWatch(id.toInt(), result)
+            }
+        }
+        watchJobs[id.toInt()] = job
+""",
+        """\
+        val key = id.toInt()
+        synchronized(watchLock) {
+            watchJobs.remove(key)?.cancel()
+            if (watchJobs.size >= 8) return key
+            val job = scope.launch(start = CoroutineStart.LAZY) {
+                val owner = currentCoroutineContext()[Job]
+                try {
+                    if (!geolocationPermissionGranted()) {
+                        triggerPositionResultWatch(key, GeolocationPositionResult.Error("Location permission not granted"))
+                        return@launch
+                    }
+                    val subject = permissions.subjectOf(appUuid) ?: return@launch
+                    permissions.grantedKeys(subject, listOf(PluginPermissions.LOCATION)).collectLatest { grants ->
+                        if (PluginPermissions.LOCATION !in grants) {
+                            triggerPositionResultWatch(key, GeolocationPositionResult.Error("Location permission revoked"))
+                            currentCoroutineContext().cancel()
+                            return@collectLatest
+                        }
+                        systemGeolocation.watchPosition(interval.coerceAtLeast(200.0).milliseconds, highAccuracyBool).collect { result ->
+                            if (permissions.check(appUuid, PluginPermissions.LOCATION) != PermissionDecision.Granted) {
+                                currentCoroutineContext().cancel()
+                            } else triggerPositionResultWatch(key, result)
+                        }
+                    }
+                } finally {
+                    synchronized(watchLock) { if (watchJobs[key] === owner) watchJobs.remove(key) }
+                }
+            }
+            watchJobs[key] = job
+            job.start()
+        }
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/GeolocationInterface.kt',
+        '        watchJobs.remove(id)?.cancel("Watch cleared")',
+        '        synchronized(watchLock) { watchJobs.remove(id)?.cancel("Watch cleared") }',
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/GeolocationInterface.kt',
+        """\
+        watchJobs.values.forEach { it.cancel() }
+        watchJobs.clear()\
+""",
+        """\
+        synchronized(watchLock) {
+            watchJobs.values.toList().forEach { it.cancel() }
+            watchJobs.clear()
+        }\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/firmware/Cohorts.kt',
+        '        val latestFwVersion = FirmwareVersion.from(',
+        """\
+        if (!Regex("[0-9a-fA-F]{64}").matches(normalFw.sha256)) {
+            return FirmwareUpdateCheckResult.UpdateCheckFailed("Firmware digest missing or invalid")
+        }
+        val latestFwVersion = FirmwareVersion.from(\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/firmware/Cohorts.kt',
+        '                url = normalFw.url,',
+        '                url = normalFw.url.substringBefore(\'#\') + "#orb-sha256=" + normalFw.sha256.lowercase(),',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt',
+        'logger.v("get: ${url.sanitizeUrl(libPebble.value)} auth=$auth")',
+        'logger.v("get host=${io.ktor.http.Url(url).host}")',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt',
+        'logger.v { "post url=$url result=${response.status}" }',
+        'logger.v { "write host=${io.ktor.http.Url(url).host} result=${response.status}" }',
+        expect=2,
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt',
+        'logger.v { "delete url=$url result=${response.status}" }',
+        'logger.v { "delete host=${io.ktor.http.Url(url).host} result=${response.status}" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt',
+        'logger.w(e) { "Error doing put: ${e.message}" }',
+        'logger.w { "HTTP write failed" }',
+        expect=3,
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt',
+        'logger.w(e) { "Error doing get: ${e.message}" }',
+        'logger.w { "HTTP read failed" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt',
+        'logger.i("http call failed: $response")',
+        'logger.i("HTTP read failed")',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt',
+        'logger.e("error: ${e.message}", e)',
+        'logger.e("HTTP response could not be decoded")',
+        expect=2,
+    )
+    replace_literal(
+        'composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandler.kt',
+        'logger.d { "handle: uri = $uri" }',
+        'logger.d { "incoming deep link" }',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/music/AndroidSystemMusicControl.kt',
+        """\
+            context.contentResolver.openInputStream(uri.toUri())
+                ?.use { BitmapFactory.decodeStream(it) }\
+""",
+        '            io.rebble.libpebblecommon.imaging.boundedImage(context, uri.toUri())?.bitmap',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/music/AndroidSystemMusicControl.kt',
+        'logger.d(e) { "Couldn\'t read album art uri" }',
+        'logger.d { "Couldn\'t read album art" }',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt',
+        """\
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    try {
+        val stream = context.contentResolver.openInputStream(this) ?: return null
+        // In bounds-only mode decodeStream returns null by design; the size lands in options.
+        stream.use { BitmapFactory.decodeStream(it, null, options) }
+    } catch (e: Exception) {
+        // The listener only holds a read grant while the notification is posted, and the provider
+        // can refuse regardless.
+        logger.d(e) { "couldn't read notification image" }
+        return null
+    }
+    if (options.outWidth <= 0 || options.outHeight <= 0) return null
+    return NotificationImage(NotificationImageSource.FromUri(this), options.outWidth, options.outHeight)
+}
+""",
+        """\
+    // Dimensions are taken from the bounded snapshot at decode time on the IO worker.
+    if (scheme != "content" && scheme != "android.resource") return null
+    return NotificationImage(NotificationImageSource.FromUri(this), 0, 0)
+}
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImageStore.kt',
+        """\
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bitmap = context.contentResolver.openInputStream(source.uri)?.use {
+                BitmapFactory.decodeStream(it, null, options)
+            } ?: return null
+            val orientation = context.contentResolver.openInputStream(source.uri)?.use {
+                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            } ?: ExifInterface.ORIENTATION_NORMAL
+""",
+        """\
+            val snapshot = io.rebble.libpebblecommon.imaging.boundedImage(context, source.uri) ?: return null
+            val bitmap = snapshot.bitmap
+            val orientation = snapshot.bytes.inputStream().use {
+                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            }
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImageStore.kt',
+        '    val sample = generateSequence(1) { it * 2 }',
+        """\
+    if (source is NotificationImageSource.FromBitmap &&
+        (width !in 1..8192 || height !in 1..8192 || width.toLong() * height > 32L * 1024 * 1024)) return null
+    val sample = generateSequence(1) { it * 2 }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt',
+        'settings.allowFileAccess = true',
+        'settings.allowFileAccess = false',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt',
+        'settings.allowUniversalAccessFromFileURLs = true',
+        'settings.allowUniversalAccessFromFileURLs = false',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt',
+        'settings.allowFileAccessFromFileURLs = true',
+        'settings.allowFileAccessFromFileURLs = false',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt',
+        '            val urlAsUri = Uri.fromFile(File(jsUrl)).toString()',
+        '            val appScript = withContext(Dispatchers.IO) { File(jsUrl).readText() }',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt',
+        """\
+                webView.evaluateJavascript(
+                        \"""
+                            (() => {
+                                const signalLoaded = () => {
+                                    _Pebble.signalAppScriptLoadedByBootstrap();
+                                }
+                                const head = document.getElementsByTagName("head")[0];
+                                const script = document.createElement("script");
+                                script.type = "text/javascript";
+                                script.onreadystatechange = signalLoaded;
+                                script.onload = signalLoaded;
+                                script.charset = "utf-8";
+                                script.src = ${Json.encodeToString(urlAsUri)};
+                                head.appendChild(script);
+                            })();
+                            \""".trimIndent()
+                ) { value -> logger.d { "added app script tag" } }
+                webView.evaluateJavascript("document.title = ${Json.encodeToString("PKJS: ${appInfo.longName}")};", null)\
+""",
+        """\
+                webView.evaluateJavascript(appScript) {
+                    webView.evaluateJavascript("_Pebble.signalAppScriptLoadedByBootstrap();", null)
+                }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt',
+        'logger.d { "Page finished loading: $url" }',
+        'logger.d { "PKJS page loaded" }',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewPrivatePKJSInterface.kt',
+        'logger.v { "Startup script has loaded: $data" }',
+        'logger.v { "Startup script loaded" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt',
+        """\
+    network: ConfigPageNetwork,
+""",
+        """\
+    network: ConfigPageNetwork,
+    expectedUrl: String,
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+    network: ConfigPageNetwork,
+""",
+        """\
+    network: ConfigPageNetwork,
+    expectedUrl: String,
+""",
+    )
+    replace_literal(
+        'pebble/src/iosMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.ios.kt',
+        """\
+    network: ConfigPageNetwork,
+""",
+        """\
+    network: ConfigPageNetwork,
+    expectedUrl: String,
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.kt',
+        'webViewFactory(it, webViewUuid, bridge, mayLoad, pageNetwork)',
+        'webViewFactory(it, webViewUuid, bridge, mayLoad, pageNetwork, url)',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageBridge.kt',
+        '    if (android && android.call) return android.call(payload);',
+        '    if (android && android.postMessage) return android.postMessage(payload);',
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+    addJavascriptInterface(ConfigNetwork(mayLoad), CONFIG_NETWORK_NAMESPACE)
+""",
+        """\
+    settings.allowFileAccess = false
+    settings.allowContentAccess = false
+    settings.allowFileAccessFromFileURLs = false
+    settings.allowUniversalAccessFromFileURLs = false
+    check(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))
+    val expected = Uri.parse(expectedUrl)
+    val expectedOrigin = if (expected.scheme == "https" || expected.scheme == "http")
+        "${expected.scheme}://${expected.encodedAuthority}" else null
+    val origins = setOf(expectedOrigin ?: "*")
+    fun accepts(origin: Uri, mainFrame: Boolean): Boolean = mainFrame &&
+        if (expectedOrigin != null) origin.toString() == expectedOrigin
+        else origin.toString() == "null" && url == expectedUrl
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        'configNetworkJs(context)',
+        'configNetworkJs(context, network.csp)',
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+    addJavascriptInterface(NativeConfigBridge(bridge), CONFIG_NATIVE_NAMESPACE)
+    bridge.attach { js -> post { evaluateJavascript(js, null) } }\
+""",
+        """\
+    WebViewCompat.addWebMessageListener(this, CONFIG_NATIVE_NAMESPACE, origins) { _, message, origin, main, _ ->
+        if (accepts(origin, main)) message.data?.let(bridge::onCall)
+    }
+    bridge.attach { js -> post {
+        val current = Uri.parse(url.orEmpty())
+        if (expectedOrigin?.let { "${current.scheme}://${current.encodedAuthority}" == it } ?: (url == expectedUrl))
+            evaluateJavascript(js, null)
+    } }\
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        'WebViewCompat.addDocumentStartJavaScript(this, CONFIG_PAGE_SHIM_JS, setOf("*"))',
+        'WebViewCompat.addDocumentStartJavaScript(this, CONFIG_PAGE_SHIM_JS, origins)',
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        '    addJavascriptInterface(localStorageInterface, "_localStorage")',
+        """\
+    configStorage[this] = localStorageInterface
+    WebViewCompat.addWebMessageListener(this, "_OrbConfigStorage", origins) { _, message, origin, main, _ ->
+        if (accepts(origin, main)) message.data?.let { localStorageInterface.saveState(it) }
+    }\
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        '    actual val enforced = csp == null || WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)',
+        """\
+    actual val enforced = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
+        (csp == null || WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))\
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+private fun configNetworkJs(context: Context) =
+    context.assets.open("realm_guard.js").bufferedReader().use { it.readText() } + \"""
+        if (typeof $CONFIG_NETWORK_NAMESPACE !== 'undefined') {
+          __pebbleGuardRealms(globalThis, $CONFIG_NETWORK_NAMESPACE.allowed.bind($CONFIG_NETWORK_NAMESPACE), false);
+        }
+    \""".trimIndent()
+
+private class ConfigNetwork(private val mayLoad: (String) -> Boolean) {
+    @JavascriptInterface
+    fun allowed(url: String) = mayLoad(url)
+}
+
+private class NativeConfigBridge(private val bridge: ConfigPageBridge) {
+    @JavascriptInterface
+    fun call(json: String) = bridge.onCall(json)
+}
+
+""",
+        """\
+private val configStorage = java.util.WeakHashMap<WebView, WebViewJSLocalStorageInterface>()
+
+private fun configNetworkJs(context: Context, csp: String?) =
+    context.assets.open("realm_guard.js").bufferedReader().use { it.readText() } + \"""
+        (function () {
+          var policy = ${Json.encodeToString(csp?.substringAfter("connect-src ")?.substringBefore(';'))};
+          function allowed(raw) {
+            try {
+              var u = new URL(raw, location.href);
+              if (!['https:', 'http:', 'wss:', 'ws:'].includes(u.protocol)) return false;
+              if (policy === null) return true;
+              return policy.split(' ').some(function (rule) {
+                if (rule === "'none'") return false;
+                var r = new URL(rule.replace('://*.', '://'));
+                return u.protocol === r.protocol && (u.hostname === r.hostname ||
+                  (rule.includes('://*.') && u.hostname.endsWith('.' + r.hostname))) && u.port === r.port;
+              });
+            } catch (e) { return false; }
+          }
+          __pebbleGuardRealms(globalThis, allowed, false);
+        })();
+    \""".trimIndent()
+
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+        webView.evaluateJavascript(\"""
+            (function() {
+                // Storage is disabled\
+""",
+        """\
+        val saved = configStorage[webView]?.restoreState() ?: "{}"
+        webView.evaluateJavascript(\"""
+            (function() {
+                // Storage is disabled\
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        'const localStorageData = JSON.parse(window._localStorage.restoreState());',
+        'const localStorageData = JSON.parse(${Json.encodeToString(saved)});',
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        'window._localStorage.saveState(JSON.stringify(data));',
+        'window._OrbConfigStorage.postMessage(JSON.stringify(data));',
+    )
+    replace_literal(
+        'pebble/src/iosMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.ios.kt',
+        '        (didReceiveScriptMessage.body as? String)?.let { bridge.onCall(it) }',
+        '        if (didReceiveScriptMessage.frameInfo.mainFrame) (didReceiveScriptMessage.body as? String)?.let { bridge.onCall(it) }',
+    )
+    replace_literal(
+        'util/src/androidMain/kotlin/RememberDocumentLauncher.android.kt',
+        'logger.w(e) { "Couldn\'t open $uri" }',
+        'logger.w { "Couldn\'t open incoming document" }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/firmware/Cohorts.kt',
+        'watch.runningFwVersion.isRecovery || latestFwVersion > watch.runningFwVersion',
+        'latestFwVersion > watch.runningFwVersion',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/config/ConfigPageBridge.kt',
+        'logger.w(e) { "malformed call from config page" }',
+        'logger.w { "malformed call from config page" }',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleKitProvider.kt',
+        'projection: Array<out String>?',
+        'projection: Array<out String?>?',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/two/PebbleKitProvider.kt',
+        'selectionArgs: Array<out String>?',
+        'selectionArgs: Array<out String?>?',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitProvider.kt',
+        '        val cursor = MatrixCursor(CURSOR_COLUMN_NAMES)',
+        """\
+        if (!initializeIfNeeded()) return null
+        val callers = context?.packageManager?.getPackagesForUid(android.os.Binder.getCallingUid()).orEmpty().toList()
+        if (!kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            io.rebble.libpebblecommon.pebblekit.PebbleKitAuthorization.associated(callers)
+        }) return null
+        val cursor = MatrixCursor(CURSOR_COLUMN_NAMES)\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitProvider.kt',
+        '        cursor.use { _ ->',
+        '        run {',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/pebblekit/classic/io/rebble/libpebblecommon/pebblekit/classic/PebbleKitProvider.kt',
+        '                return@use',
+        '                return@run',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/BootConfig.kt',
+        'logger.w("error decoding bootconfig", e)',
+        'logger.w("error decoding boot configuration")',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/account/BootConfig.kt',
+        'logger.w(e) { "Failed to refresh stale boot config, using cached version" }',
+        'logger.w { "Boot configuration refresh failed; using cached version" }',
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/GeolocationInterface.kt',
+        """\
+                            currentCoroutineContext().cancel()
+                            return@collectLatest\
+""",
+        """\
+                            owner?.cancel()
+                            return@collectLatest\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/GeolocationInterface.kt',
+        '                                currentCoroutineContext().cancel()',
+        '                                owner?.cancel()',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        '    private var importing = false',
+        '    private val importing = MutableStateFlow(false)',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+            if (importing || _pendingFirmwareSideload.value != null ||
+                _pendingLanguagePack.value != null || _pendingAppSideload.value != null) return false
+            importing = true\
+""",
+        """\
+            if (_pendingBootConfig.value != null || _pendingFirmwareSideload.value != null ||
+                _pendingLanguagePack.value != null || _pendingAppSideload.value != null ||
+                !importing.compareAndSet(false, true)) return false\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        'finally { importing = false }',
+        'finally { importing.value = false }',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        '    private fun handleBootConfig(path: String?): Boolean {',
+        """\
+    private fun handleBootConfig(path: String?): Boolean {
+        if (importing.value || _pendingFirmwareSideload.value != null ||
+            _pendingLanguagePack.value != null || _pendingAppSideload.value != null) return false\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        '    fun consumePendingAppSideload()',
+        '    fun consumePendingAppSideload(expected: Path): Boolean',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt',
+        """\
+    override fun consumePendingAppSideload() {
+        _pendingAppSideload.value = null
+    }\
+""",
+        """\
+    override fun consumePendingAppSideload(expected: Path): Boolean =
+        _pendingAppSideload.compareAndSet(expected, null)\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt',
+        '        override fun consumePendingAppSideload() {}',
+        '        override fun consumePendingAppSideload(expected: Path) = false',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt',
+        """\
+            fun discard() {
+                externalSideload = null\
+""",
+        """\
+            fun discard() {
+                deepLinks.consumePendingAppSideload(path)
+                externalSideload = null\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt',
+        '                            sideload(path)',
+        '                            if (deepLinks.consumePendingAppSideload(path)) sideload(path)',
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt',
+        """\
+                deepLinks.consumePendingAppSideload()
+                // In the screen's scope: consuming the sideload restarts this effect.
+""",
+        '',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        'fun globalInternetIsImplicitForLegacyAppsUnlessTheUserWantsToBeAsked()',
+        'fun legacyInternetAlwaysRequiresApproval()',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        '        assertEquals(Granted, decide(GLOBAL_INTERNET, legacy))',
+        '        assertEquals(NeedsApproval, decide(GLOBAL_INTERNET, legacy))',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        'fun legacyLocationIsImplicitUnlessTheUserWantsToBeAsked()',
+        'fun legacyLocationAlwaysRequiresApproval()',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        '        assertEquals(Granted, decide(LOCATION, legacy, rows))',
+        '        assertEquals(NeedsApproval, decide(LOCATION, legacy, rows))',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/js/WebSocketManagerTest.kt',
+        """\
+    @Test
+    fun aBlockedHostIsNeverDialled()\
+""",
+        """\
+    @Test
+    fun permissionRevocationCancelsAnIdleConnection() = runTest {
+        var allowed = true
+        val changes = kotlinx.coroutines.flow.MutableSharedFlow<Unit>()
+        val access = object : NetworkAccess {
+            override suspend fun check(url: String, wait: Boolean) =
+                if (allowed) PluginNetworkVerdict.Allowed else PluginNetworkVerdict.Denied("revoked")
+            override fun changes() = changes
+        }
+        val client = HttpClient(MockEngine { awaitCancellation() }) { install(WebSockets) }
+        val evals = mutableListOf<String>()
+        val manager = WebSocketManager(this, { evals.add(it) }, client, Uuid.random(), access, { _, _, _, _, _ -> })
+        manager.dispatch("createInstance", listOf("wss://stream.example.com/", ""))
+        runCurrent()
+        allowed = false
+        changes.emit(Unit)
+        awaitSockets()
+        assertEquals(listOf(ABNORMAL_CLOSE), evals)
+        client.close()
+    }
+
+    @Test
+    fun aBlockedHostIsNeverDialled()\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt',
+        """\
+                SystemFileSystem.sink(tempAppPath).use { sink ->
+                    file.source.use { source ->
+                        source.transferTo(sink)
+                    }
+                }
+                sideload(tempAppPath)\
+""",
+        """\
+                scope.launch {
+                    val copied = withContext(Dispatchers.IO) {
+                        try {
+                            file.source.use { source ->
+                                SystemFileSystem.sink(tempAppPath).buffered().use { sink ->
+                                    var total = 0L
+                                    val buffer = ByteArray(8192)
+                                    while (true) {
+                                        val count = source.readAtMostTo(buffer)
+                                        if (count < 0) break
+                                        total += count
+                                        require(total <= 32L * 1024 * 1024) { "Watchapp too large" }
+                                        sink.write(buffer, 0, count)
+                                    }
+                                }
+                            }
+                            true
+                        } catch (_: Exception) {
+                            SystemFileSystem.delete(tempAppPath, mustExist = false)
+                            false
+                        }
+                    }
+                    if (copied) sideload(tempAppPath)
+                    else deepLinks.showMessage("Couldn't read watchapp: unreadable or larger than 32 MiB")
+                }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/music/AndroidSystemMusicControl.kt',
+        '            val bitmap = metadata.albumArtBitmap()',
+        """\
+            val bitmap = metadata.albumArtBitmap()?.takeIf {
+                it.width in 1..8192 && it.height in 1..8192 && it.width.toLong() * it.height <= 32L * 1024 * 1024
+            }\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerScreen.kt',
+        'import kotlinx.io.files.Path',
+        """\
+import kotlinx.io.buffered
+import kotlinx.io.files.Path\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        'fun everyLegacyAppKeepsLocationWhateverItsCapabilitiesSay()',
+        'fun everyLegacyAppMustAskForLocation()',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        'assertEquals(Granted, decide(LOCATION, subject(legacy = true), exfiltrating))',
+        'assertEquals(NeedsApproval, decide(LOCATION, subject(legacy = true), exfiltrating))',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        '        assertIs<PluginNetworkVerdict.Allowed>(gate(legacy = true).check("https://anywhere.example.org/", wait = false))',
+        """\
+        assertIs<PluginNetworkVerdict.Denied>(gate(legacy = true).check("https://anywhere.example.org/", wait = false))
+        permissions.setDecisions(APP, mapOf(GLOBAL_INTERNET to true))
+        assertIs<PluginNetworkVerdict.Allowed>(gate(legacy = true).check("https://anywhere.example.org/", wait = false))\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/services/EngDashOta.kt',
+        """\
+currentVersion = if (!watch.runningFwVersion.isRecovery) {
+                    ensureVersionPrefix(watch.runningFwVersion.stringVersion)
+                } else null\
+""",
+        'currentVersion = ensureVersionPrefix(watch.runningFwVersion.stringVersion)',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt',
+        'bigPicture(context)?.asNotificationImage()',
+        'bigPicture(context)',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt',
+        'private fun StatusBarNotification.bigPicture(context: Context): Bitmap?',
+        'private fun StatusBarNotification.bigPicture(context: Context): NotificationImage?',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt',
+        '    if (bitmap != null) return bitmap',
+        '    if (bitmap != null) return bitmap.asNotificationImage()',
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt',
+        '    return (icon.loadDrawable(context) as? BitmapDrawable)?.bitmap',
+        """\
+    return when (icon.type) {
+        Icon.TYPE_URI, Icon.TYPE_URI_ADAPTIVE_BITMAP -> icon.uri.asNotificationImage(context)
+        Icon.TYPE_BITMAP, Icon.TYPE_ADAPTIVE_BITMAP ->
+            (icon.loadDrawable(context) as? BitmapDrawable)?.bitmap?.asNotificationImage()
+        else -> null
+    }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationImage.kt',
+        'if (width <= 0 || height <= 0) null',
+        'if (width !in 1..8192 || height !in 1..8192 || width.toLong() * height > 32L * 1024 * 1024) null',
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/endpointmanager/FirmwareUpdater.kt',
+        '        if (!watchConfig.value.autoResumeFirmwareUpdate || !fwupProps.supportsResume) return',
+        """\
+        if (interrupted.update.url.contains("&orb-pinned")) return
+        if (!watchConfig.value.autoResumeFirmwareUpdate || !fwupProps.supportsResume) return\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/endpointmanager/FirmwareUpdater.kt',
+        '            logger.d { "updateFirmware: $update" }',
+        """\
+            val pinned = update.url.contains("&orb-pinned")
+            if (pinned && (trigger == FirmwareUpdateTrigger.AutoUpdate || requireResume)) return@launch
+            logger.d { "firmware installation requested" }\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/connection/endpointmanager/FirmwareUpdater.kt',
+        """\
+            if (!tryStartUpdateMutex(update, trigger)) {
+                return@launch
+            }
+            val path = reusableDownloadedPbz(update)\
+""",
+        """\
+            if (!pinned && update.version < fwupProps.runningFwVersion) {
+                logger.w { "Refusing firmware downgrade" }
+                return@launch
+            }
+            if (!tryStartUpdateMutex(update, trigger)) {
+                return@launch
+            }
+            val path = reusableDownloadedPbz(update)\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/InstallReview.kt',
+        """\
+"Apps built before permissions existed can use these by default. To be asked first, turn on " +
+                    "\\"Ask before older apps use permissions\\" in Settings."\
+""",
+        """\
+"Network and location always require approval. For other access, turn on " +
+                    "\\"Ask before older apps use other permissions\\" in Settings."\
+""",
+    )
+    replace_literal(
+        'pebble/src/commonMain/kotlin/coredevices/pebble/ui/InstallReview.kt',
+        """\
+            val text = if (config.watchConfig.askLegacyAppsForPermissions) {
+                "Built before permissions: asks before using $access"
+            } else {
+                "Built before permissions: has access to $access"
+            }\
+""",
+        """\
+            val text = "Built before permissions: $access. Network and location require approval; " +
+                "other access follows Settings."\
+""",
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        'fun aLegacyAppIsOnlyReviewedWhenTheUserAsksForThat()',
+        'fun aLegacyAppAlwaysReviewsNetworkAndLocation()',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        '        assertEquals(emptySet(), reviewed(legacy))',
+        '        assertEquals(setOf(GLOBAL_INTERNET, LOCATION), reviewed(legacy))',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        'assertEquals("granted", permissions.query(APP, internetKey("example.com")).queryState())',
+        'assertEquals("prompt", permissions.query(APP, internetKey("example.com")).queryState())',
+    )
+    replace_literal(
+        'libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/permissions/AppPermissionsTest.kt',
+        'assertNull(permissions(FakePermissionDao(), installed = installedAs(subject(legacy = true))).grantedDomains(APP))',
+        'assertEquals(emptyList(), permissions(FakePermissionDao(), installed = installedAs(subject(legacy = true))).grantedDomains(APP))',
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+    val expected = Uri.parse(expectedUrl)
+    val expectedOrigin = if (expected.scheme == "https" || expected.scheme == "http")
+        "${expected.scheme}://${expected.encodedAuthority}" else null\
+""",
+        '    val expectedOrigin = coredevices.pebble.config.configPageOrigin(expectedUrl)',
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+    fun accepts(origin: Uri, mainFrame: Boolean): Boolean = mainFrame &&
+        if (expectedOrigin != null) origin.toString() == expectedOrigin
+        else origin.toString() == "null" && url == expectedUrl\
+""",
+        """\
+    fun accepts(origin: Uri, mainFrame: Boolean): Boolean =
+        coredevices.pebble.config.configPageMayUseBridge(expectedUrl, origin.toString(), mainFrame, url)\
+""",
+    )
+    replace_literal(
+        'pebble/src/androidMain/kotlin/coredevices/pebble/ui/WatchappSettingsScreen.android.kt',
+        """\
+        val current = Uri.parse(url.orEmpty())
+        if (expectedOrigin?.let { "${current.scheme}://${current.encodedAuthority}" == it } ?: (url == expectedUrl))\
+""",
+        '        if (expectedOrigin?.let { coredevices.pebble.config.configPageOrigin(url.orEmpty()) == it } ?: (url == expectedUrl))',
+    )
+
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt', '                _snackBarMessages.tryEmit("Failed to sideload firmware: no connected watch")\n                return@launch', '                _snackBarMessages.tryEmit("Failed to sideload firmware: no connected watch")\n                SystemFileSystem.delete(file, mustExist = false)\n                return@launch')
+
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt', 'import kotlinx.coroutines.sync.Semaphore\nimport kotlinx.coroutines.sync.withPermit\n', '')
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt', '    private val importLock = Semaphore(1)\n', '')
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.kt', 'try { importLock.withPermit { handleNow(uri) } }', 'try { handleNow(uri) }')
+
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/locker/Locker.kt', 'import co.touchlab.kermit.Logger', 'import io.rebble.libpebblecommon.util.safeLogHost\nimport co.touchlab.kermit.Logger', expect=1)
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/locker/Locker.kt', 'logger.w { "Not opening ${entry.title}\'s config page: ${verdict.reason}" }', 'logger.w { "Config page refused host=${safeLogHost(page)}" }', expect=1)
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/locker/Locker.kt', 'logger.w { "Blocked $title\'s config page loading $url: ${verdict.reason}" }', 'logger.w { "Config request refused host=${safeLogHost(url)}" }', expect=1)
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt', 'import co.touchlab.kermit.Logger', 'import io.rebble.libpebblecommon.util.safeLogHost\nimport co.touchlab.kermit.Logger', expect=1)
+    replace_literal('libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/js/WebSocketManager.kt', 'logger.w { "$appUuid blocked: ${verdict.reason}" }', 'logger.w { "WebSocket refused host=${safeLogHost(url)}" }', expect=1)
+    replace_literal('libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt', 'import co.touchlab.kermit.Logger', 'import io.rebble.libpebblecommon.util.safeLogHost\nimport co.touchlab.kermit.Logger', expect=1)
+    replace_literal('libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt', 'logger.w { "Blocked ${url.host}: ${verdict.reason}" }', 'logger.w { "PKJS request refused host=${safeLogHost(url.toString())}" }', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerAppScreen.kt', 'import co.touchlab.kermit.Logger', 'import io.rebble.libpebblecommon.util.safeLogHost\nimport co.touchlab.kermit.Logger', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerAppScreen.kt', 'logger.w(e) { "Failed to open URL: $url" }', 'logger.w { "Browser open failed host=${safeLogHost(url)}" }', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/ui/LockerAppScreen.kt', 'logger.w { "Not opening invalid URL: $url" }', 'logger.w { "Browser URL refused host=${safeLogHost(url)}" }', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreService.kt', 'import co.touchlab.kermit.Logger', 'import io.rebble.libpebblecommon.util.safeLogHost\nimport co.touchlab.kermit.Logger', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreService.kt', 'logger.v { "${it.call.request.url}" }', 'logger.v { "Store response host=${safeLogHost(it.call.request.url.toString())}" }', expect=2)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreService.kt', 'logger.v { "fetchAppStoreHome fetching ${source.url}/v1/home/$typeString" }', 'logger.v { "Store home request host=${safeLogHost(source.url)}" }', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreService.kt', 'logger.v { "get ${url} with parameters $parameters" }', 'logger.v { "Store request host=${safeLogHost(url)}" }', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreService.kt', 'logger.w { "Failed to fetch home of type ${type.code}, status: ${it.status}, source = ${source.url}" }', 'logger.w { "Store home request failed host=${safeLogHost(source.url)}" }', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreService.kt', 'logger.w(e)', 'logger.w', expect=12)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/weather/YahooWeatherInterceptor.kt', 'import co.touchlab.kermit.Logger', 'import io.rebble.libpebblecommon.util.safeLogHost\nimport co.touchlab.kermit.Logger', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/weather/YahooWeatherInterceptor.kt', 'logger.w { "Unknown request: $url" }', 'logger.w { "Weather request refused host=${safeLogHost(url)}" }', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/weather/OpenWeather25Interceptor.kt', 'import co.touchlab.kermit.Logger', 'import io.rebble.libpebblecommon.util.safeLogHost\nimport co.touchlab.kermit.Logger', expect=1)
+    replace_literal('pebble/src/commonMain/kotlin/coredevices/pebble/weather/OpenWeather25Interceptor.kt', 'logger.w { "Unknown request: $url" }', 'logger.w { "Weather request refused host=${safeLogHost(url)}" }', expect=1)
+    replace_literal('pebble/src/iosMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.ios.kt', 'logger.i { "Failed to get security-scoped access for file URI: $uri. Will attempt direct access." }', 'logger.i { "File import: scoped access unavailable" }', expect=1)
+    replace_literal('pebble/src/iosMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.ios.kt', 'logger.w { "NSURL path is null for URI: $uri after attempting security scope access." }', 'logger.w { "File import: path unavailable" }', expect=1)
+    replace_literal('pebble/src/iosMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.ios.kt', 'logger.w { "File does not exist at security-scoped path: $sourcePath for URI: $uri" }', 'logger.w { "File import: file unavailable" }', expect=1)
+    replace_literal('pebble/src/iosMain/kotlin/coredevices/pebble/PebbleDeepLinkHandler.ios.kt', 'logger.e(e) { "Error writing file for $uri" }', 'logger.e { "File import failed" }', expect=1)
+
+
 def apply(extra_abis: list[str]) -> None:
     version_name, version_code = read_version()
     check_pin(version_name)
@@ -2260,29 +3784,6 @@ def apply(extra_abis: list[str]) -> None:
     edit(util_module, r"single \{ EngDashOtaApiImpl\(\) \} bind EngDashOtaApi::class",
          "single { GitHubFirmwareApi(get(), get()) } bind EngDashOtaApi::class")
     edit(settings_screen, r"^(\s*)\) \+ watchPrefs\n", r"\1) + watchPrefs + orbPinnedFirmwareSetting()\n")
-    # GitHubFirmwareApi puts the SHA-256 it verified in the URL fragment. Check the download that
-    # gets installed against it, so only the bytes Orb checked can reach the watch.
-    downloader = "libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/web/FirmwareDownloader.kt"
-    edit(downloader, r"^import kotlinx\.io\.files\.SystemFileSystem\n",
-         "import kotlinx.io.buffered\n"
-         "import kotlinx.io.files.SystemFileSystem\n"
-         "import kotlinx.io.readByteArray\n"
-         "import okio.ByteString.Companion.toByteString\n")
-    edit(downloader, r"httpClient\.get\(url\)", 'httpClient.get(url.substringBefore("#orb-sha256="))')
-    edit(
-        downloader,
-        r'^([ \t]*)logger\.v \{ "Downloaded firmware to \$path" \}\n',
-        r'\1val orbSha256 = url.substringAfter("#orb-sha256=", "").substringBefore("&")' "\n"
-        r"\1if (orbSha256.isNotEmpty()) {" "\n"
-        r"\1    val actual = SystemFileSystem.source(path).buffered().use { it.readByteArray() }.toByteString().sha256().hex()" "\n"
-        r"\1    if (actual != orbSha256) {" "\n"
-        r'\1        logger.w { "Downloaded firmware is not the bundle Orb verified; discarding it" }' "\n"
-        r"\1        SystemFileSystem.delete(path)" "\n"
-        r"\1        return@withTimeoutOr null" "\n"
-        r"\1    }" "\n"
-        r"\1}" "\n"
-        r'\1logger.v { "Downloaded firmware to $path" }' "\n",
-    )
     # A pinned version is the user's explicit choice, possibly a downgrade: offer it, never
     # install it unattended.
     edit(
@@ -2382,6 +3883,7 @@ def apply(extra_abis: list[str]) -> None:
     drop_core_telemetry_tables()
     remove_google_fit()
     fit_delegate_call()
+    harden_orb_release()
 
     if extra_abis:
         edit(

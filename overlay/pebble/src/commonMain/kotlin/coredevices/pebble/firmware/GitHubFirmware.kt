@@ -1,5 +1,6 @@
 package coredevices.pebble.firmware
 
+import io.rebble.libpebblecommon.web.firmwareDownloadUrlAllowed
 import co.touchlab.kermit.Logger
 import com.russhwolf.settings.Settings
 import coredevices.api.EngDashArtifact
@@ -125,6 +126,7 @@ class GitHubFirmwareApi(
     private suspend fun download(asset: GitHubAsset): ByteArray =
         httpClient.prepareGet(asset.url).execute { response ->
             check(response.status.isSuccess()) { "HTTP ${response.status}" }
+            check(firmwareDownloadUrlAllowed(response.call.request.url.toString(), github = true)) { "Invalid final asset URL" }
             response.bodyAsChannel().readRemaining(asset.size + 1).readByteArray()
         }
 
@@ -150,7 +152,7 @@ class GitHubFirmwareApi(
  * digest, and FirmwareUpdateUiTracker doesn't auto-install pinned offers.
  */
 fun withVerifiedDigest(asset: GitHubAsset, pinned: Boolean): String =
-    asset.url + "#orb-sha256=" + asset.digest!!.removePrefix("sha256:") + if (pinned) "&orb-pinned" else ""
+    asset.url + "#orb-sha256=" + asset.digest!!.removePrefix("sha256:") + "&orb-github" + if (pinned) "&orb-pinned" else ""
 
 @Serializable
 data class GitHubRelease(
@@ -207,6 +209,7 @@ fun metadataProblem(release: GitHubRelease, board: String): String? {
         release.prerelease -> "marked as a pre-release"
         ReleaseVersion.parse(release.tagName) == null -> "not a release tag"
         asset == null -> "no ${bundleName(board, release.tagName)}"
+        !firmwareDownloadUrlAllowed(asset.url, github = true) -> "invalid asset URL"
         asset.state != "uploaded" -> "bundle upload incomplete"
         asset.size !in 1..MAX_BUNDLE_SIZE -> "implausible bundle size ${asset.size}"
         asset.digest == null || !SHA256_DIGEST.matches(asset.digest) -> "no SHA-256 digest published"

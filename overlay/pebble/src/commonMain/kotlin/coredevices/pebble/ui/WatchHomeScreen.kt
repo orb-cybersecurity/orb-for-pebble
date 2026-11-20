@@ -353,7 +353,7 @@ fun WatchHomeScreen(
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = deepLinkHandler::confirmPendingFirmwareSideload) {
+                    TextButton(onClick = { deepLinkHandler.confirmPendingFirmwareSideload(pending) }) {
                         Text("Install")
                     }
                 },

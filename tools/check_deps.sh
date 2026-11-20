@@ -8,7 +8,7 @@ set -eu
 
 forbidden='io\.github\.coredevices\.(speex|haversine)|io\.github\.mirzemehdi:kmpnotifier|dev\.gitlive:firebase|com\.google\.firebase|com\.google\.android\.(gms|play|libraries\.identity)|com\.mixpanel'
 
-deps=$(cd mobileapp && ./gradlew -q --no-daemon :androidApp:dependencies --configuration releaseRuntimeClasspath)
+deps=$(cd mobileapp && ./gradlew --offline -q --no-daemon :androidApp:dependencies --configuration releaseRuntimeClasspath)
 found=$(printf '%s\n' "$deps" | grep -E "$forbidden" | grep -vE -- "-> project '?:" || true)
 if [ -n "$found" ]; then
     printf 'Release dependencies include artifacts Orb must not ship:\n%s\n' "$found" >&2

@@ -101,7 +101,7 @@ class GitHubFirmwareTest {
         val result = server.api().getLatestFirmware("serial", BOARD, "v4.44.0")
         assertEquals("v4.45.0", result?.version)
         assertEquals(
-            bundleUrl("v4.45.0") + "#orb-sha256=" + sha256(good).toHexString(),
+            bundleUrl("v4.45.0") + "#orb-sha256=" + sha256(good).toHexString() + "&orb-github",
             result?.artifacts?.single()?.url,
         )
     }
@@ -196,7 +196,7 @@ class GitHubFirmwareTest {
     fun pinnedOffersAreMarkedAndOthersAreNot() {
         val asset = release("v4.46.0").assets.single()
         assertTrue(withVerifiedDigest(asset, pinned = true).endsWith("&orb-pinned"))
-        assertTrue(withVerifiedDigest(asset, pinned = false).endsWith(asset.digest!!.removePrefix("sha256:")))
+        assertTrue(withVerifiedDigest(asset, pinned = false).contains("#orb-sha256=" + asset.digest!!.removePrefix("sha256:")))
     }
 }
 

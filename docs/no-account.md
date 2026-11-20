@@ -45,7 +45,7 @@ phone (overlay `FirestoreLocker.kt`, `LocalLocker`). Android's backup carries it
 instead. On GrapheneOS that is Seedvault, which encrypts the backup on the phone
 and writes it to a USB drive or any folder the system file picker reaches. Orb's
 backup rules (`res/xml/data_extraction_rules.xml`) copy Orb's databases, its
-settings file and the apps you opened from `.pbw` files. That covers your watches,
+app settings (including the Rebble sign-in) and the apps you opened from `.pbw` files. That covers your watches,
 the locker, which store each app came from, your settings, your Rebble sign-in and
 your answers to watchapp permission requests.
 
@@ -80,8 +80,8 @@ which ships only as a prebuilt binary. What remains:
   Rebble mode under Speech Recognition.
 - "System (On-Device)" under Speech Recognition, using the phone's speech
   recognition app. It needs Android 13 or newer and an app that accepts the audio
-  Orb hands it. GrapheneOS has no such app yet, so on GrapheneOS without a Rebble
-  subscription there is no dictation today.
+  Orb hands it. System/offline dictation is not yet available on GrapheneOS.
+  Rebble dictation works there with a Rebble subscription.
 
 **Support chat and bug reports to Core.** Core's in-app support chat, its bug
 report upload and the replies it pushes to the phone all use your Core account.
@@ -154,3 +154,9 @@ and sync tables. An install that already had commit `4e3b3ec` stays at the same
 v12 schema. Separately, `libpebble3.db` follows Core's v51 → v52 → v53 → v54
 migrations, adding local usage/action history and carrying microphone grants into
 watch permission bits. See [the port report](port-2.0.0.md) for validation details.
+
+Orb refuses automatic and offered firmware downgrades. An explicit hidden version
+pin can downgrade a Core watch, with manual installation only. Original Pebble
+firmware must match its published SHA-256. Outbound web connections trust system
+CAs only, excluding user-installed CAs. The off-by-default LAN developer server
+uses an unencrypted local connection.

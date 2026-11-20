@@ -1,6 +1,5 @@
-- Based on Core 2.0.0, with its permission and startup fixes.
-- Watch discovery uses a dialog; watch colors and background-access prompts are shown.
-- Language packs use a cached GitHub catalog with size and SHA-256 checks.
-- Network usage and plugin action history stay on the phone and can be shared with logs.
-- Removed the additional telemetry collector, exit reporting and voice report uploads.
-- Keeps Orb's firmware checks, link confirmations, HTTPS-only policy and encrypted backup rules.
+- Based on Core 2.0.0, retaining its permission and startup fixes.
+- Requires companion authorization and confirms incoming files before installation.
+- Binds external settings callbacks to one-use requests; applies live permission revocation.
+- Bounds imports, images and firmware downloads; verifies firmware hashes and refuses automatic downgrades.
+- Trusts system CAs only and clears account identity on logout or account switch.

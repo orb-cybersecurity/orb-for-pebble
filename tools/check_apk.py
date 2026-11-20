@@ -12,6 +12,7 @@ aapt2 is taken from $AAPT2, else from the newest build-tools in $ANDROID_HOME (d
 """
 
 import os
+import json
 import re
 import struct
 import subprocess
@@ -133,11 +134,53 @@ def resource_files(apk: str) -> dict[str, tuple[str, str]]:
     return files
 
 
+def check_exported_components(manifest: Node, application: Node, resource_names: dict[str, str]) -> list[str]:
+    """Reviewed release surface, including disabled aliases and system-bound services."""
+    allowed = json.loads((Path(__file__).with_name("exported_components.json")).read_text())
+    actual = []
+    app_permission = application.attrs.get("permission", "")
+    for kind in ("activity", "activity-alias", "service", "receiver", "provider"):
+        for component in manifest.find(kind):
+            attrs = component.attrs
+            exported = attrs.get("exported", "true" if kind != "provider" and component.find("intent-filter") else "false")
+            if exported != "true":
+                continue
+            inherited = app_permission
+            if kind == "activity-alias":
+                target = attrs.get("targetActivity")
+                inherited = next((n.attrs.get("permission", app_permission) for n in manifest.find("activity")
+                                  if n.attrs.get("name") == target), app_permission)
+            permission = attrs.get("permission", inherited)
+            enabled = attrs.get("enabled", "true")
+            if enabled.startswith("@"):
+                enabled = "@" + resource_names.get(enabled.lstrip("@"), "unknown-resource")
+            row = dict(kind=kind, name=attrs.get("name", ""), permission=permission,
+                       readPermission=attrs.get("readPermission", permission),
+                       writePermission=attrs.get("writePermission", permission), enabled=enabled)
+            if kind == "activity-alias":
+                row["targetActivity"] = attrs.get("targetActivity", "")
+            if kind == "provider":
+                row["authorities"] = attrs.get("authorities", "")
+            actual.append(row)
+    problems = []
+    for component in actual:
+        if component not in allowed:
+            problems.append("unexpected exported component or permissions: " + json.dumps(component, sort_keys=True))
+    for component in allowed:
+        if component not in actual:
+            problems.append("missing or changed exported component: " + component["name"])
+    return problems
+
+
 def check_manifest(apk: str) -> list[str]:
     problems = []
     manifest = xmltree(apk, "AndroidManifest.xml")
     application = manifest.find("application")[0]
     files = resource_files(apk)
+    resource_dump = subprocess.run([aapt2(), "dump", "resources", apk], check=True,
+                                   capture_output=True, text=True).stdout
+    resource_names = dict(re.findall(r"^\s*resource (0x[0-9a-f]+) (\S+)", resource_dump, re.MULTILINE))
+    problems += check_exported_components(manifest, application, resource_names)
 
     def rules(attr: str, name: str) -> Node | None:
         ref = application.attrs.get(attr, "").lstrip("@")
@@ -179,6 +222,10 @@ def check_manifest(apk: str) -> list[str]:
         for config in network.find("base-config") + network.find("domain-config"):
             if config.attrs.get("cleartextTrafficPermitted") not in (None, "false"):
                 problems.append(f"the network security config allows plain HTTP in <{config.tag}>")
+
+        anchors = network.find("certificates")
+        if not anchors or any(n.attrs.get("src") != "system" for n in anchors):
+            problems.append("network trust anchors must be system CAs only")
 
     for component in manifest.find("receiver") + manifest.find("activity") + manifest.find("service"):
         if component.attrs.get("name", "").startswith("coredevices.coreapp.debug."):

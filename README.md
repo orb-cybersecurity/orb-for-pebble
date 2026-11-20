@@ -22,15 +22,13 @@ comes first when the two pull in different directions.
 ## Status
 
 Orb is early in development and currently based on Core's 2.0.0 release.
-The earlier 1.18.0.1 release was tested on GrapheneOS with a real watch; the
-2.0.0 port still needs build and device validation. Releases are published on
+The earlier 1.18.0.1 release was tested on GrapheneOS with a real watch.
+2.0.0-orb1 builds and passes Orb’s checks. Releases are published on
 GitHub as signed APKs, installed and updated with Obtainium.
 
-Dictation does not work yet. Orb hands it to the phone's speech recognition
-service, and no free recognizer currently transcribes the watch's audio:
-GrapheneOS's own speech services do not offer speech-to-text yet, and Transcribro
-records the phone's microphone instead of the audio Orb passes to it. Orb will use
-whichever of these gains support first.
+System/offline dictation is not yet available on GrapheneOS. Rebble dictation
+works with a Rebble subscription. Other Android systems need Android 13 or newer
+and a speech recognizer that accepts recorded audio for system dictation.
 
 The watchface and app store works without an account: browsing the Pebble and
 Rebble stores, searching, and installing to the watch all work.
@@ -72,7 +70,7 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   Rebble locker. A sync refreshes apps from the store they came from and never
   removes an installed app.
 - **Backup:** Orb's own rules say what Android's backup copies: the databases,
-  the settings file and apps opened from `.pbw` files, and nothing from caches or
+  app settings including the Rebble sign-in, and apps opened from `.pbw` files, and nothing from caches or
   logs. They go only to backup services that encrypt on the phone, or in a
   device-to-device transfer such as Seedvault's. Core's rules only excluded
   Firebase's files.
@@ -81,13 +79,17 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   update through Rebble. A version can be pinned under Settings → Debug after
   enabling "Show debug options".
 - **Dictation:** Orb uses the phone's selected speech recognition service.
-  Choose "System (On-Device)" in speech settings. This requires Android 13 or
-  newer and a recognizer app that accepts recorded audio.
+  System/offline dictation is not yet available on GrapheneOS. Rebble dictation
+  works with a Rebble subscription; select a Rebble mode in speech settings.
+  Other Android systems need Android 13 or newer and a recognizer app that accepts recorded audio for system dictation.
 
 For Core watches, Orb selects the newest non-draft, non-prerelease firmware newer
 than the installed version, checking the watch board, published SHA-256 digest,
 download hash, manifest board and version, and CRCs. If a release fails these
-checks, it tries the next older eligible release.
+checks, it tries the next older eligible release. Automatic and offered updates refuse
+firmware older than the running version. An explicit hidden version pin may downgrade,
+but is never installed automatically. Original Pebble firmware must match Rebble’s
+published SHA-256 too.
 
 ## Network and privacy
 
@@ -127,9 +129,10 @@ watchapps you install can use their own HTTPS hosts.
 App store pages open in your browser. Watch apps you install run their own
 JavaScript on the phone and can contact their own servers, as on every Pebble app.
 
-Every connection is encrypted. Orb allows no plain HTTP, for itself or for watch
-apps and their settings pages, so a watch app that uses an `http://` address
-can't reach it from Orb. Core's app allows it.
+Outbound web connections use HTTPS, with system CAs only; user-installed CAs are
+not trusted. Orb blocks plain HTTP for itself, watchapps and their settings pages.
+The LAN developer server is an exception: it is off by default and uses an
+unencrypted local connection when enabled.
 
 [docs/no-account.md](docs/no-account.md) lists what using Orb without a Core
 account costs.
