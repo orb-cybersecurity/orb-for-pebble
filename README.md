@@ -21,8 +21,9 @@ comes first when the two pull in different directions.
 
 ## Status
 
-Orb is early in development and currently based on Core's 1.18.0.1 release.
-It has been tested on GrapheneOS with a real watch. Releases are published on
+Orb is early in development and currently based on Core's 2.0.0 release.
+The earlier 1.18.0.1 release was tested on GrapheneOS with a real watch; the
+2.0.0 port still needs build and device validation. Releases are published on
 GitHub as signed APKs, installed and updated with Obtainium.
 
 Dictation does not work yet. Orb hands it to the phone's speech recognition
@@ -48,7 +49,8 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   and its support chat, battery history, messaging app developers through Core's
   store, and cloud speech recognition. Their code is removed, not hidden. Bug
   reports can still be saved and shared as files.
-- Mixpanel analytics, and Core's watch analytics and Memfault diagnostics uploads.
+- Both Mixpanel collectors, Firebase user linkage, process-exit analytics,
+  and Core's watch analytics and Memfault diagnostics uploads.
 - The Cactus speech engine, distributed only as a prebuilt binary.
 - Support for Core's Index 01 ring. Its radio library is closed source, so Orb
   removes the ring's code entirely and has no plans to support the ring.
@@ -95,16 +97,32 @@ Orb itself contacts only these services:
   (`appstore-api.rebble.io`), app downloads and images (`binaries.rebble.io`,
   `assets2.rebble.io`), firmware for older Pebble watches (`cohorts.rebble.io`),
   and Rebble dictation if you choose it.
-- **Core's Pebble app store** (`appstore-api.repebble.com`), its published watch
-  language packs (`translate.repebble.com`) and timeline icons
-  (`developer.repebble.com`).
+- **Core's Pebble app store** (`appstore-api.repebble.com`) and timeline icons
+  (`developer.repebble.com`). Language contribution pages (`translate.repebble.com`)
+  open in your browser.
 - **Algolia**, a third-party search service, when you search an app store. It uses
   the stores' public search-only keys.
 - **Core's weather service** (`weather-api.repebble.com`) while weather is on, which
   it is by default. It receives the coordinates of each weather location. Watch apps
   that ask OpenWeatherMap's or Yahoo's old weather APIs are answered from the same
   service, with the coordinates they ask about.
-- **GitHub**, for firmware releases for Core watches.
+- **GitHub** (`api.github.com`, `github.com` and their release-download hosts,
+  including `release-assets.githubusercontent.com`), for firmware releases for
+  Core watches and the language-pack manifest at
+  `https://github.com/coredevices/pebbleos-translations/releases/latest/download/manifest.json`.
+  The manifest is cached and refreshed during background sync. It supplies
+  language-pack URLs: current packs are restricted to that repository's releases;
+  archived packs may use any HTTPS host named by the manifest, including
+  `binaries.rebble.io`.
+
+Language-pack downloads must match the manifest's exact byte count and SHA-256.
+The catalog and downloads have size limits. The manifest is trusted through HTTPS
+and has no separate signature; its digest checks detect mismatched downloads,
+but do not protect against replacement of both the catalog and a pack.
+
+Rebble's boot configuration supplies the locker and dictation endpoints. A custom
+server requires confirmation of its host. Additional store feeds you enable and
+watchapps you install can use their own HTTPS hosts.
 
 App store pages open in your browser. Watch apps you install run their own
 JavaScript on the phone and can contact their own servers, as on every Pebble app.
@@ -119,6 +137,10 @@ account costs.
 Orb sends no telemetry and has no analytics. Mixpanel, Firebase, Crashlytics,
 Core's analytics and Core's watch analytics and Memfault diagnostics uploads are
 all removed. Data the watch offers for them is dropped on the phone.
+
+The per-app network-usage and plugin-action history screens introduced in 2.0.0
+keep their records on the phone. They enter a shared log file only when you choose
+Share Logs.
 
 ## Installing
 

@@ -15,10 +15,12 @@ fails here instead of silently building something else.
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -49,19 +51,19 @@ REPLACED = {
     # Rewritten without Core's Index 01 ring (see remove_index_ring()); the replacements also
     # carry Orb's other changes to these files.
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/PebbleService.kt":
-        "7dfc7d7aaa33da14a10990c688c6e08245f2bcccfa3f724965ed5a364b1b0597",
+        "5b92fcfea72d91cfde43c67a5ff99284824b767091f2b139ca30134f1ed86376",
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/PebbleBackgroundManager.kt":
         "3e99e6895ed9efd054313a1dffabbbdceb781f6aceb19b7a057b881868c35534",
     "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.kt":
-        "2a4e001b8b85921d3228491775e0af10b27648a5c59854cf7f35da5901593ee4",
+        "0e66a2604b8c9e08d5f6970d23743dfee771e8b03b143485854cd3d74581a532",
     "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/OnboardingScreen.kt":
         "751898c0160d2604f7e598356bd61245f637a0f65c179b8147146d8af6d6951f",
     "composeApp/src/commonTest/kotlin/coredevices/coreapp/ui/navigation/CoreDeepLinkHandlerTest.kt":
         "cd116f99cce317aa67d5e339cc2769e2c663899333fd7f70b3d4a091c4286e42",
     "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchHomeScreen.kt":
-        "9f2bc23f1f080baa28864052c4d120777935887e6cde74734494114d4d8605e1",
+        "9f809f82a8a7f34275ff9960fef49d15df5913cb33e83c3b51dd5907e9c180d7",
     "pebble/src/commonMain/kotlin/coredevices/pebble/ui/WatchesScreen.kt":
-        "b577c182d0045ef0040137e4e48b382a9052a2a5a5ad20e234bd6e0d23d8a9ae",
+        "75b3647760614324f93f6005e1dad7d32d56f3dfbdf2a7202c5f1d5ded66dada",
     "pebble/src/commonTest/kotlin/coredevices/pebble/ui/WatchHomeNavTabTest.kt":
         "4e443ba4a8d95781ba58cec133208c521b0d63363fc3346c80373671a3574dae",
     # Rewritten without Core's cloud speech recognition and on-device engine (see
@@ -102,6 +104,9 @@ REMOVED = [
     "index-ai",
     "mcp",
     "resampler",
+    # Used only to generate the removed ring's tool schemas.
+    "toolschemagen",
+    "toolschemaannotations",
     "androidApp/src/androidTest",
     "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/ringonboarding",
     "composeApp/src/commonMain/kotlin/coredevices/coreapp/plugins",
@@ -163,6 +168,8 @@ REMOVED = [
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/BugReportService.kt",
     "composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.android.kt",
     "composeApp/src/iosMain/kotlin/coredevices/coreapp/ui/screens/BugReportProcessor.ios.kt",
+    "composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReport.android.kt",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/ui/screens/BugReport.ios.kt",
     # Core's cloud locker's helpers: permission decisions uploaded to it, and a one-off move of
     # copies the official app once sideloaded (see remove_cloud_locker()).
     "pebble/src/commonMain/kotlin/coredevices/pebble/account/PermissionDecisionSync.kt",
@@ -193,6 +200,18 @@ REMOVED = [
     "util/src/commonTest/kotlin/coredevices/analytics",
     "util/src/commonMain/kotlin/coredevices/util/transcription/TranscriptionAnalytics.kt",
     "util/src/commonTest/kotlin/coredevices/util/transcription/TranscriptionAnalyticsTest.kt",
+    "libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon/LibPebbleAnalytics.kt",
+    *(f"libpebble3/src/{source}/kotlin/io/rebble/libpebblecommon/connection/{name}.kt"
+      for source, name in (
+          ("commonMain", "ConnectionFailureHandler"),
+          ("androidMain", "ConnectionFailureHandler.android"),
+          ("iosMain", "ConnectionFailureHandler.ios"))),
+    # Orb ships an Android app. Core's native iOS host still wires accounts, push and telemetry;
+    # remove that unused host and its DI, retaining shared library platform implementations.
+    "iosApp",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/IOSDelegate.kt",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/MetricKitExitReporter.kt",
+    "composeApp/src/iosMain/kotlin/coredevices/coreapp/di/iosDefaultModule.kt",
     # Core's queue of background sync tasks, which nothing in Orb uses (see remove_sync_manager()).
     "util/src/commonMain/kotlin/coredevices/util/sync",
     "util/src/androidMain/kotlin/coredevices/util/sync",
@@ -224,7 +243,7 @@ REMOVED = [
 
 # Catalog accessors of dependencies and plugins that must not be referenced at all.
 DROPPED_ACCESSORS = (
-    r"libs\.(?:firebase\.bom|firebase\.crashlytics(?:\.ndk)?|gms\.auth|identity\.google"
+    r"libs\.(?:firebase\.bom|firebase\.crashlytics(?:\.ndk)?|gms\.(?:auth|location)|identity\.google"
     r"|play\.update(?:\.ktx)?|crashkios|mixpanel\.android|kmpnotifier"
     r"|firebase\.(?:auth|firestore|storage|common\.internal)"
     r"|plugins\.googleServices|plugins\.firebaseCrashlytics)\b"
@@ -368,6 +387,7 @@ def remove_index_ring(settings_screen: str) -> None:
     edit("util/src/commonTest/kotlin/coredevices/util/CoreConfigTest.kt",
          r'"WatchFaces", "Index", "Watches",', '"WatchFaces", "Watches",', expect=2)
     edit(core_config, r"^[ \t]*val (enableIndex|indexPermissionsConfirmed): Boolean = false,\n", "", expect=2)
+    edit(core_config, r"^    val showIndexBatteryLife: Boolean = true,\n", "")
     edit(core_config,
          r"^[ \t]*/\*\* Stops the ring scan/sync loop.*\*/\n[ \t]*val disableRingBluetoothSync: Boolean = false,\n", "")
     edit("util/src/commonMain/kotlin/CommonRoutes.kt",
@@ -388,6 +408,13 @@ def remove_index_ring(settings_screen: str) -> None:
     companion = "util/src/commonMain/kotlin/coredevices/util/CompanionDevice.kt"
     edit(companion, r"^import coredevices\.libindex\.device\.IndexIdentifier\n", "")
     edit(companion, r"^[ \t]*(suspend )?fun [a-zA-Z]+\(identifier: IndexIdentifier[^\n]*\n", "", expect=4)
+    ios_companion = "util/src/iosMain/kotlin/coredevices/util/IosCompanionDevice.kt"
+    edit(ios_companion, r"^import coredevices\.libindex\.device\.IndexIdentifier\n", "")
+    remove_kotlin_block(ios_companion,
+                        r"^    override suspend fun registerDevice\(\n        identifier: IndexIdentifier,\n"
+                        r"        uiContext: PlatformUiContext,\n        useClassicAssociation: Boolean\n    \) \{")
+    remove_kotlin_block(ios_companion,
+                        r"^    override fun (?:hasApprovedDevice|canRemoveBond|removeBond)\(identifier: IndexIdentifier\): Boolean \{", expect=3)
     android_companion = "util/src/androidMain/kotlin/coredevices/util/AndroidCompanionDevice.kt"
     edit(android_companion, r"^import coredevices\.libindex\.device\.IndexIdentifier\n", "")
     edit(android_companion, r"^import android\.companion\.BluetoothDeviceFilter\n", "")
@@ -476,10 +503,6 @@ def remove_index_ring(settings_screen: str) -> None:
     edit(deep_links, r"RingRoutes\.OBJECT_DEEP_LINK_HOST", '"deep-link"')
     edit(deep_links, r"^[ \t]*private const val ID_PARAM = RingRoutes\.OBJECT_DEEP_LINK_ID_PARAM\n", "")
     edit(deep_links, r"^[ \t]*val id = uri\.getQueryParameter\(ID_PARAM\).*\n", "")
-    edit("composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReport.android.kt",
-         r"\nactual fun getExperimentalDebugInfoDirectory\(\): String \{\n(?:.*\n)*?\}\n", "")
-    edit("composeApp/src/androidMain/kotlin/coredevices/coreapp/ui/screens/BugReport.android.kt",
-         r"^import java\.io\.File\n", "")
     bug_report = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt"
     edit(bug_report, r"^expect fun getExperimentalDebugInfoDirectory\(\): String\n", "")
     edit(bug_report, r"^import androidx\.compose\.material3\.FilterChip\n", "")
@@ -569,6 +592,12 @@ def remove_index_ring(settings_screen: str) -> None:
          r"|androidx\.compose\.ui\.platform\.LocalContext|coredevices\.libindex\.device\.KnownIndexDevice"
          r"|coredevices\.util\.CompanionDevice|org\.koin\.compose\.koinInject)\n", "", expect=11)
     edit(watches_android, r"\n@Composable\nactual fun RemovePairingMenuItem\(\n(?:.*\n)*?\}\n", "")
+    watches_ios = "pebble/src/iosMain/kotlin/coredevices/pebble/ui/WatchesScreen.ios.kt"
+    remove_kotlin_block(watches_ios, r"^@Composable\nactual fun RemovePairingMenuItem\(")
+    edit(watches_ios,
+         r"^import (androidx\.compose\.material\.icons\.(Icons|outlined\.Delete)"
+         r"|androidx\.compose\.material3\.(DropdownMenuItem|Icon|Text)|androidx\.compose\.runtime\.Composable"
+         r"|coredevices\.libindex\.device\.KnownIndexDevice)\n", "", expect=7)
     preview = "pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt"
     edit(preview, r"^import coredevices\.libindex\..*\n", "", expect=3)
     edit(preview, r"^import coredevices\.util\.SecondaryProfileWarning\n", "")
@@ -788,11 +817,6 @@ def confirm_external_input() -> None:
     replace_literal(handler, "    val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload?>\n", """\
     val pendingFirmwareSideload: StateFlow<PendingFirmwareSideload?>
 
-    /** A boot-config link waiting for the user to approve its host. */
-    val pendingBootConfig: StateFlow<PendingBootConfig?>
-    fun confirmPendingBootConfig(expected: PendingBootConfig)
-    fun dismissPendingBootConfig()
-
     /** A language pack from another app waiting for the user to confirm it. */
     val pendingLanguagePack: StateFlow<PendingLanguagePack?>
     fun confirmPendingLanguagePack(expected: PendingLanguagePack)
@@ -800,7 +824,6 @@ def confirm_external_input() -> None:
 """)
     replace_literal(handler, "data class PendingFirmwareSideload(val file: Path, val fileName: String)\n", """\
 data class PendingFirmwareSideload(val file: Path, val fileName: String)
-data class PendingBootConfig(val path: String, val token: String, val host: String)
 data class PendingLanguagePack(val file: Path, val name: String)
 
 /** A name from a file or package, made safe to show: no control or formatting characters, one short line. */
@@ -816,19 +839,6 @@ fun orbDisplayName(raw: String, max: Int = 64): String {
 """)
     replace_literal(handler, "    private var reservedSideloadCount = 0\n", """\
     private var reservedSideloadCount = 0
-    private val _pendingBootConfig = MutableStateFlow<PendingBootConfig?>(null)
-    override val pendingBootConfig: StateFlow<PendingBootConfig?> = _pendingBootConfig.asStateFlow()
-
-    override fun confirmPendingBootConfig(expected: PendingBootConfig) {
-        // Only the request the user was shown.
-        if (!_pendingBootConfig.compareAndSet(expected, null)) return
-        applyBootConfig(expected.token, expected.path)
-    }
-
-    override fun dismissPendingBootConfig() {
-        _pendingBootConfig.value = null
-    }
-
     private val _pendingLanguagePack = MutableStateFlow<PendingLanguagePack?>(null)
     override val pendingLanguagePack: StateFlow<PendingLanguagePack?> = _pendingLanguagePack.asStateFlow()
 
@@ -852,39 +862,32 @@ fun orbDisplayName(raw: String, max: Int = 64): String {
         SystemFileSystem.delete(pending.file, mustExist = false)
     }
 """)
-    # Boot config: validate, then park the link for confirmation (one at a time); what used to
-    # run at once becomes applyBootConfig, called only from confirmPendingBootConfig.
-    edit(handler,
-         r"^(    private fun handleBootConfig\(path: String\?\): Boolean \{\n"
-         r"        logger\.d \{ \"handleBootConfig\(\)\" \}\n"
-         r"        val token = parseTokenFrom\(path\)\n"
-         r"        if \(path == null \|\| token == null\) \{\n"
-         r"            logger\.w\(\"couldn't find token\"\)\n"
-         r"            return false\n"
-         r"        \}\n)"
-         r"(        GlobalScope\.launch \{\n"
-         r"            pebbleAccount\.setToken\(token = token, bootUrl = path\)\n"
-         r"(?:            .*\n)*?"
-         r"        \}\n)"
-         r"        return true\n",
-         lambda m: m.group(1) + """\
-        val host = bootConfigHost(path)
-        if (host == null) {
-            logger.w("boot config link is not https with a plain host name")
-            _snackBarMessages.tryEmit("Ignored a sign-in link: it must use https and a plain server name")
-            return false
-        }
-        if (_pendingBootConfig.value != null) {
+    # Keep Core's pending state and parser, with Orb's stricter host validation and a
+    # confirmation bound to the displayed request. A second link cannot replace that request.
+    replace_literal(handler, "    fun confirmPendingBootConfig()\n",
+                    "    fun confirmPendingBootConfig(expected: PendingBootConfig)\n")
+    replace_literal(handler, "        _pendingBootConfig.value = pending\n", """\
+        if (!_pendingBootConfig.compareAndSet(null, pending)) {
             logger.w("boot config link ignored: another one is waiting for the user")
             return false
         }
-        _pendingBootConfig.value = PendingBootConfig(path = path, token = token, host = host)
-        navigateToTab(PebbleNavBarRoutes.WatchesRoute)
-        return true
-    }
-
-    private fun applyBootConfig(token: String, path: String) {
-""" + m.group(2))
+""")
+    replace_literal(handler, """\
+    override fun confirmPendingBootConfig() {
+        val pending = _pendingBootConfig.value ?: return
+        _pendingBootConfig.value = null
+""", """\
+    override fun confirmPendingBootConfig(expected: PendingBootConfig) {
+        if (!_pendingBootConfig.compareAndSet(expected, null)) return
+        val pending = expected
+""")
+    replace_literal(handler, """\
+            val url = Uri.parseOrNull(path.removePrefix("/")) ?: return null
+            if (url.scheme != "https") return null
+            val host = url.host?.takeIf { it.isNotBlank() } ?: return null
+""", """\
+            val host = bootConfigHost(path) ?: return null
+""")
     replace_literal(handler, "        internal fun parseTokenFrom(path: String?): String? {\n", """\
         /**
          * Host (with any explicit port) of a boot-config link's URL. Null unless it is https with
@@ -1002,13 +1005,13 @@ fun orbDisplayName(raw: String, max: Int = 64): String {
     replace_literal("pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt",
         "        override val pendingAppSideload: StateFlow<Path?> = MutableStateFlow(null)\n", """\
         override val pendingAppSideload: StateFlow<Path?> = MutableStateFlow(null)
-        override val pendingBootConfig: StateFlow<coredevices.pebble.PendingBootConfig?> = MutableStateFlow(null)
-        override fun confirmPendingBootConfig(expected: coredevices.pebble.PendingBootConfig) {}
-        override fun dismissPendingBootConfig() {}
         override val pendingLanguagePack: StateFlow<coredevices.pebble.PendingLanguagePack?> = MutableStateFlow(null)
         override fun confirmPendingLanguagePack(expected: coredevices.pebble.PendingLanguagePack) {}
         override fun dismissPendingLanguagePack() {}
 """)
+    replace_literal("pebble/src/commonMain/kotlin/coredevices/pebble/ui/PreviewUtil.kt",
+                    "        override fun confirmPendingBootConfig() {}\n",
+                    "        override fun confirmPendingBootConfig(expected: coredevices.pebble.PendingBootConfig) {}\n")
 
 
 def remove_core_speech(settings_screen: str) -> None:
@@ -1586,6 +1589,159 @@ def remove_sync_manager() -> None:
          r"^        GlobalScope\.launch\(Dispatchers\.Default\) \{\n            syncManager\.resume\(\)\n        \}\n", "")
 
 
+def remove_release_additions() -> None:
+    """Unhook 2.0.0's account linkage, exit reporting and voice report upload.
+
+    Keep local exit logging and Core's startup/exception fixes. Crash classification served
+    only the removed persistent queue, so its platform API goes rather than returning a stub.
+    """
+    app = "composeApp/src/androidMain/kotlin/coredevices/coreapp/MainApplication.kt"
+    remove_kotlin_block(app, r"^                if \(info\.timestamp > lastReported && info\.processName == packageName\) \{")
+    edit(app, r"^            // First run: only report the most recent exit, not the whole history\.\n"
+         r"            val lastReported = .*\n(?:                \?: .*\n){2}", "")
+    edit(app, r"^            reasons\.maxOfOrNull.*KEY_LAST_REPORTED_EXIT_TIMESTAMP.*\n", "")
+    edit(app, r"^private const val KEY_LAST_REPORTED_EXIT_TIMESTAMP = .*\n", "")
+    edit(app, r"^    private val (coreAnalytics: CoreAnalytics|settings: Settings) by inject\(\)\n", "", expect=2)
+    edit(app, r"^import (coredevices\.analytics\.CoreAnalytics|com\.russhwolf\.settings\.(Settings|set))\n", "", expect=3)
+    edit(app, r"^        // Cactus telemetry is initialized via CommonAppDelegate\.initCactus\(\)\n", "")
+
+    delegate = "composeApp/src/commonMain/kotlin/coredevices/coreapp/CommonAppDelegate.kt"
+    remove_kotlin_block(delegate, r"^        GlobalScope\.launch\(Dispatchers\.Default\) \{(?=\n            Firebase\.auth\.authStateChanged\.collect)")
+    edit(delegate, r"^import coredevices\.analytics\.PROP_FIREBASE_UID\n", "")
+    module = "composeApp/src/commonMain/kotlin/coredevices/coreapp/di/utilModule.kt"
+    edit(module, r"^import coredevices\.ring\.agent\.builtin_servlets\.bugreport\.BugReporter\n", "")
+    edit(module, r"^    single \{ BugReporter\(get<BugReportProcessor>\(\)::newVoiceBugReport\) \}\n", "")
+    edit("util/src/commonMain/kotlin/coredevices/api/EngDashOtaApi.kt",
+         r"^import (coredevices\.util\.CommonBuildKonfig|io\.ktor\..*|kotlinx\.io\.IOException)\n", "", expect=8)
+    screen = "composeApp/src/commonMain/kotlin/coredevices/coreapp/ui/screens/BugReportScreen.kt"
+    edit(screen, r"^expect fun isThirdPartyTest\(\): Boolean\n", "")
+    edit(screen, r"^            if \(isThirdPartyTest\(\)\) return\n", "")
+
+    platform = "util/src/commonMain/kotlin/coredevices/util/Platform.kt"
+    edit(platform, r"^    /\*\* Whether the previous run of the app ended in a crash, as opposed to being killed by the user or the OS\. \*/\n"
+         r"    val previousRunCrashed: Boolean get\(\) = false\n", "")
+    android = "util/src/androidMain/kotlin/coredevices/util/Platform.android.kt"
+    remove_kotlin_block(android, r"^    override val previousRunCrashed: Boolean\n        get\(\) \{")
+    edit(android, r"^import (android\.app\.(ActivityManager|ApplicationExitInfo)|dev\.gitlive\.firebase\.(Firebase|crashlytics\.crashlytics))\n", "", expect=4)
+    ios = "util/src/iosMain/kotlin/coredevices/util/Platform.ios.kt"
+    edit(ios, r"^    override val previousRunCrashed: Boolean\n        get\(\) = Firebase\.crashlytics\.didCrashOnPreviousExecution\(\)\n", "")
+    edit(ios, r"^import dev\.gitlive\.firebase\.(Firebase|crashlytics\.crashlytics)\n", "", expect=2)
+    edit("androidApp/src/main/AndroidManifest.xml",
+         r'^        <meta-data\n            android:name="com\.google\.android\.geo\.API_KEY"\n            android:value="[^"]+" />\n', "")
+
+    edit("settings.gradle.kts", r'^include\(":toolschema(?:gen|annotations)"\)\n', "", expect=2)
+    # Remove native host build wiring as well as its source (REMOVED).
+    gradle = "composeApp/build.gradle.kts"
+    edit(gradle, r"^    alias\(libs\.plugins\.nativeCocoaPods\)\n", "")
+    remove_kotlin_block(gradle, r'^    tasks\.register\("fixXcodeProject"\) \{')
+    remove_kotlin_block(gradle, r'^    tasks\.named\("podInstall"\) \{')
+    remove_kotlin_block(gradle, r"^    cocoapods \{")
+    edit(gradle, r"^    // Make xcode invoke gradle from the right place\n", "")
+    edit(gradle, r"^            // The binary FirebaseFirestoreInternal is static, so its C deps must be linked into\n"
+         r"            // every binary that pulls in Firestore, not just the pod framework\.\n"
+         r'            val grpcSlice = if \(target\.konanTarget\.name\.contains\("simulator"\)\) \{\n'
+         r'                "ios-arm64_x86_64-simulator"\n            \} else \{\n'
+         r'                "ios-arm64"\n            \}\n', "")
+    remove_kotlin_block(gradle, r"^            listOf\(\n                \"FirebaseFirestoreGRPCCoreBinary/[^\n]*\n"
+                        r"(?:.*\n){3}            \)\.forEach \{")
+
+    # Drop dormant endpoint/credential configuration and catalog entries after their users go.
+    gradle = "util/build.gradle.kts"
+    edit(gradle, r'^        buildConfigField\(FieldSpec\.Type\.(?:STRING|BOOLEAN), "(?:BUG_URL|TOKEN_URL|MIXPANEL_TOKEN|WISPR_AUTH_URL|KIRINKI_URL|MEMFAULT_TOKEN|GOOGLE_\w+|APPLE_\w+|GITHUB_\w+|CACTUS_\w+)"[^\n]*\n', "", expect=17)
+    remove_kotlin_block(gradle, r"^val properties = Properties\(\)\.apply \{")
+    remove_kotlin_block(gradle, r"^fun gradleStringPropOrNull\(")
+    edit(gradle, r"^fun gradleBooleanProp\(name: String, default: Boolean\): Boolean =\n    gradleStringPropOrNull\(name\)\?\.let \{ it == \"true\" \} \?: default\n", "")
+    edit(gradle, r"^import java\.util\.Properties\n", "")
+    delete_lines(gradle_files(), r"// gitlive's compile variant declares com\.google\.firebase:", at_least=2)
+    edit("androidApp/build.gradle.kts", r"^ +// Crashlytics regenerates a mapping-id resource every build\n", "")
+    edit("gradle.properties", r"^(?:bugUrl|tokenUrl|githubClientId|githubClientSecret|mixpanelToken|wisprAuthUrl|kirinkiUrl|memfaultToken|googleClientId|googleAuthEnabled|appleAuthEnabled|githubAuthEnabled|cactusProKey)=[^\n]*(?:\n|$)", "", expect=13)
+    catalog = "gradle/libs.versions.toml"
+    edit(catalog, r"^(?:googleServices|firebase[\w-]*|gms-(?:auth|location)|googleId|play-update(?:-ktx)?|crashkios|kmpnotifier|mixpanel-android|identity-google) = .*\n", "", expect=28)
+    edit(catalog, r"^# (?:22\.x removed GoogleSignIn.*|Ahead of the BOM firebase-kotlin.*|NEVER downgrade below 34\.x.*|2\.x pulls firebase-ios-sdk.*)\n", "", expect=4)
+
+    # CalendarProvider is a platform API. Keep its ownership check without a provider preference.
+    calendar = "libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/calendar/AndroidSystemCalendar.kt"
+    edit(calendar, r'^private const val GOOGLE_ACCOUNT_TYPE = "com\.google"\n', "")
+    replace_literal(calendar, "The account's own primary calendar (ownerAccount == accountName), preferring a Google one:\n     * Samsung's local \"My calendar\" also matches the ownership rule and has the lowest _ID.",
+                    "The first account-owned primary calendar (ownerAccount == accountName).")
+    edit(calendar, r"^                    val type = cursor\.getNullableColumnIndex\(CalendarContract\.Calendars\.ACCOUNT_TYPE\)\n                        \?\.let \{ cursor\.getString\(it\) \}\n                    if \(type == GOOGLE_ACCOUNT_TYPE\) return@use id\n", "")
+    replace_literal("pebble/src/commonMain/kotlin/coredevices/pebble/ui/CalendarScreen.kt",
+                    "Is sharing enabled in the Google Calendar app? See: Settings -> General -> Share Google Calendar data with other apps",
+                    "Check that your calendar app allows other apps to read its calendars.")
+
+
+def remove_library_telemetry() -> None:
+    """Remove libpebble's unused event bus and plugin heartbeat counters.
+
+    Per-app network usage and action history are local user-visible features and stay.
+    System data logging still acknowledges watch batches, discarding non-health data.
+    """
+    base = "libpebble3/src/commonMain/kotlin/io/rebble/libpebblecommon"
+    plugin = f"{base}/plugin/PluginClient.kt"
+    edit(plugin, r"^import io\.rebble\.libpebblecommon\.LibPebbleAnalytics\n", "")
+    remove_kotlin_block(plugin, r"^object PluginHeartbeatCounters \{")
+    remove_kotlin_block(plugin, r"^    private fun count\(")
+    edit(plugin, r"^    private val analytics: LibPebbleAnalytics,\n", "")
+    edit(plugin, r"^        count\(caller, target\.pluginUuid, PluginHeartbeatCounters\..*\n", "", expect=2)
+    replace_literal(plugin, "never prompts, isn't counted.", "never prompts.")
+
+    module = f"{base}/di/LibPebbleModule.kt"
+    edit(module, r"^import io\.rebble\.libpebblecommon\.(LibPebbleAnalytics|RealLibPebbleAnalytics|connection\.(AnalyticsEvents|ConnectionFailureHandler|RealConnectionFailureHandler))\n", "", expect=5)
+    remove_kotlin_block(module, r"^interface ConnectionAnalyticsLogger \{")
+    remove_kotlin_block(module, r"^class RealConnectionAnalyticsLogger\(")
+    remove_kotlin_block(module, r"^fun LibPebbleAnalytics\.logWatchEvent\(")
+    edit(module, r"^    (?:override )?val analyticsLogger: ConnectionAnalyticsLogger.*\n", "", expect=2)
+    edit(module, r"^                singleOf\(::RealConnectionFailureHandler\) bind ConnectionFailureHandler::class\n", "")
+    edit(module, r"^                    scopedOf\(::RealConnectionAnalyticsLogger\) bind ConnectionAnalyticsLogger::class\n", "")
+    edit(module, r"^                singleOf\(::RealLibPebbleAnalytics\) binds arrayOf\(\n(?:.*\n){2}                \)\n", "")
+    # LibPebble3 loses its analytics parameter below, so its positional call loses one get().
+    edit(module, r"^(                    LibPebble3\(\n)                        get\(\),\n", r"\1")
+
+    lib = f"{base}/connection/LibPebble.kt"
+    replace_literal(lib, "Contacts, AnalyticsEvents, HealthApi", "Contacts, HealthApi")
+    edit(lib, r"^data class AnalyticsEvent\(\n(?:    .*\n){2}\)\n", "")
+    remove_kotlin_block(lib, r"^interface AnalyticsEvents \{")
+    edit(lib, r"^    private val analytics: AnalyticsEvents,\n", "")
+    replace_literal(lib, "Contacts by contacts, AnalyticsEvents by analytics,", "Contacts by contacts,")
+    edit(lib, r"^    fun upload(?:MemfaultChunk|AnalyticsHeartbeat)\(.*\n", "", expect=2)
+    fake = f"{base}/connection/FakeLibPebble.kt"
+    edit(fake, r"^    override val (?:analyticsEvents: Flow<AnalyticsEvent>|heartbeatCounterIncrements: Flow<String>)\n        get\(\) = flow \{ \}\n", "", expect=2)
+    manager = f"{base}/connection/WatchManager.kt"
+    edit(manager, r"^import io\.rebble\.libpebblecommon\.(LibPebbleAnalytics|di\.logWatchEvent)\n", "", expect=2)
+    edit(manager, r"^    private val (?:analytics: LibPebbleAnalytics|connectionFailureHandler: ConnectionFailureHandler),\n", "", expect=2)
+    remove_kotlin_block(manager, r"^    private fun Watch\.logAnalyticsEvent\(")
+    pairing = f"{base}/connection/bt/ble/pebble/PebblePairing.kt"
+    edit(pairing, r"^import io\.rebble\.libpebblecommon\.di\.ConnectionAnalyticsLogger\n", "")
+    edit(pairing, r"^// *analytics\.logEvent\(.*\n", "", expect=3)
+
+    datalogging = f"{base}/datalogging/Datalogging.kt"
+    remove_kotlin_block(datalogging, r"^            // Handle system-app datalogging tags\n            when \(tag\) \{")
+    remove_kotlin_block(datalogging, r"^    companion object \{")
+    remove_kotlin_block(datalogging, r"^class MemfaultChunk : StructMappable\(\) \{")
+    edit(datalogging, r"^    private val webServices: WebServices,\n", "")
+    edit(datalogging, r"^import io\.rebble\.libpebblecommon\.(connection\.WebServices|structmapper\.(SBytes|SUInt|StructMappable)|util\.(DataBuffer|Endian))\n", "", expect=6)
+    tests = "libpebble3/src/commonTest/kotlin/io/rebble/libpebblecommon/plugin/PluginClientTest.kt"
+    edit(tests, r"^import io\.rebble\.libpebblecommon\.LibPebbleAnalytics\n", "")
+    remove_kotlin_block(tests, r"^private class CountingAnalytics : LibPebbleAnalytics \{")
+    edit(tests, r"^    private val analytics = CountingAnalytics\(\)\n", "")
+    replace_literal(tests, "running, analytics, logs)", "running, logs)")
+    for method in ("appInvocationsAreCountedSeparately", "readingCountsAnObservation"):
+        remove_kotlin_block(tests, rf"^    @Test\n    fun {method}\(\) = runTest \{{")
+    edit(tests, r"^        assertEquals\(.*analytics\.counters\)\n", "", expect=3)
+    replace_literal(tests, "theHostInvokesWithoutCallerPermissionsAndIsCounted", "theHostInvokesWithoutCallerPermissions")
+    replace_literal(tests, "aProbeNeverPromptsAndIsNotCounted", "aProbeNeverPrompts")
+    tests = "libpebble3/src/androidHostTest/kotlin/io/rebble/libpebblecommon/connection/WatchManagerTest.kt"
+    edit(tests, r"^import io\.rebble\.libpebblecommon\.(LibPebbleAnalytics|di\.ConnectionAnalyticsLogger)\n", "", expect=2)
+    for variable, interface in (("analyticsLogger", "ConnectionAnalyticsLogger"),
+                                ("connectionFailureHandler", "ConnectionFailureHandler"),
+                                ("analytics", "LibPebbleAnalytics")):
+        remove_kotlin_block(tests, rf"^        val {variable} = object : {interface} \{{")
+    edit(tests, r"^        override val analyticsLogger: ConnectionAnalyticsLogger,\n", "")
+    edit(tests, r"^ +(?:analyticsLogger|connectionFailureHandler|analytics) = \w+,\n", "", expect=3)
+    for method in ("uploadMemfaultChunk", "uploadAnalyticsHeartbeat"):
+        remove_kotlin_block(tests, rf"^        override fun {method}\(")
+
+
 def remove_dead_leftovers() -> None:
     """Remove code that nothing calls any more (REMOVED), found with R8's list of unused classes.
 
@@ -1726,12 +1882,12 @@ def set_backup_rules() -> None:
     # brings: Keystore-encrypted values from another phone, and Core's database schema.
     gradle = "androidApp/build.gradle.kts"
     edit(gradle, r"^(    androidTestImplementation\(libs\.kotlin\.test\)\n)",
-         r'\1    androidTestImplementation(project(":libpebble3"))\n'
+         r'\1'
          r"    androidTestImplementation(libs.room.testing)\n"
          r"    androidTestImplementation(libs.sqlite.bundled)\n")
     with (APP / gradle).open("a") as file:
         file.write('\n// Room\'s MigrationTestHelper reads the exported schemas from the test\'s assets.\n'
-                   'android.sourceSets.getByName("androidTest").assets.srcDir("../util/schema")\n')
+                   'android.sourceSets.getByName("androidTest").assets.srcDirs("../util/schema", "../libpebble3/schema")\n')
     edit("androidApp/src/main/AndroidManifest.xml", r"^(    <application\n)",
          "    <!-- Backup is allowed on purpose: it is how Orb's data reaches a new phone, since there\n"
          "         is no account to keep it in. res/xml/data_extraction_rules.xml says what it copies. -->\n"
@@ -1951,8 +2107,8 @@ def apply(extra_abis: list[str]) -> None:
     # in the database and uploaded to Core and to Memfault. Orb builds have no endpoint or key
     # for either, so the code could never send anything; it is removed rather than left inert.
     # The upload classes are in REMOVED and Memfault.kt is replaced by its serial helper. The
-    # watch still hands the data over through libpebble3's WebServices; Orb drops it there.
-    # The heartbeat table stays in Core's database so its schema needs no migration.
+    # library drops non-health system data before parsing it (remove_library_telemetry()).
+    # drop_core_telemetry_tables() also removes the old on-phone queues.
     services = "pebble/src/commonMain/kotlin/coredevices/pebble/services"
     edit(watch_module_path := "pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt",
          r"^import coredevices\.pebble\.services\.(Memfault|AnalyticsHeartbeatQueue|AnalyticsIngest|MemfaultChunkQueue)\n",
@@ -1977,14 +2133,8 @@ def apply(extra_abis: list[str]) -> None:
     edit(web_services, r"^import coredevices\.pebble\.services\.Memfault\.Companion\.serialForMemfault\n", "")
     edit(web_services, r"^[ \t]*private val (memfaultChunkQueue: MemfaultChunkQueue|analyticsHeartbeatQueue: AnalyticsHeartbeatQueue),\n",
          "", expect=2)
-    edit(web_services,
-         r"(override fun uploadMemfaultChunk\(chunk: ByteArray, watchInfo: WatchInfo\) \{\n)"
-         r"[ \t]*memfaultChunkQueue\.enqueue\(watchInfo\.serialForMemfault\(\), chunk\)\n",
-         r"\1        // Orb: Core's telemetry is removed; the watch's diagnostics are dropped here.\n")
-    edit(web_services,
-         r"(override fun uploadAnalyticsHeartbeat\(payload: ByteArray, watchInfo: WatchInfo\) \{\n)"
-         r"[ \t]*analyticsHeartbeatQueue\.enqueue\(\n(?:[ \t]*[a-zA-Z]+ = [^\n]*\n){3}[ \t]*\)\n",
-         r"\1        // Orb: Core's telemetry is removed; the watch's analytics are dropped here.\n")
+    for method in ("uploadMemfaultChunk", "uploadAnalyticsHeartbeat"):
+        remove_kotlin_block(web_services, rf"^    override fun {method}\(")
 
     # The health library falls back to Google Fit, which needs Google Play services, on phones
     # without Health Connect. Switch the fallback off and drop its activity.
@@ -2018,6 +2168,11 @@ def apply(extra_abis: list[str]) -> None:
         "libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/NotificationHandler.kt",
         r'packageName == "coredevices\.coreapp" &&',
         f'packageName == "{APPLICATION_ID}" &&',
+    )
+    edit(
+        "libpebble3/src/androidHostTest/kotlin/io/rebble/libpebblecommon/notification/NotificationDecisionTest.kt",
+        r'notification\("coredevices\.coreapp", "Test Notification"',
+        f'notification("{APPLICATION_ID}", "Test Notification"',
     )
     for provider in ("google", "apple", "github"):
         edit("gradle.properties", rf"^{provider}AuthEnabled=true$", f"{provider}AuthEnabled=false")
@@ -2215,6 +2370,8 @@ def apply(extra_abis: list[str]) -> None:
     remove_firebase()
     remove_analytics()
     remove_sync_manager()
+    remove_release_additions()
+    remove_library_telemetry()
     remove_dead_leftovers()
     harden_release_manifest()
     remove_help_page()
@@ -2224,6 +2381,7 @@ def apply(extra_abis: list[str]) -> None:
     set_backup_rules()
     drop_core_telemetry_tables()
     remove_google_fit()
+    fit_delegate_call()
 
     if extra_abis:
         edit(
@@ -2238,10 +2396,22 @@ def apply(extra_abis: list[str]) -> None:
     print(f"Applied Orb {version_name} ({version_code}) to {APP.relative_to(ROOT)}/")
 
 
+def fit_delegate_call() -> None:
+    """Core passes PebbleAppDelegate's dependencies positionally; Orb's removals leave 18."""
+    edit("pebble/src/commonMain/kotlin/coredevices/pebble/watchModule.kt",
+         r"PebbleAppDelegate\((?:get\(\), ){22}get\(\)\)",
+         "PebbleAppDelegate(" + ", ".join(["get()"] * 18) + ")")
+
+
 def reset() -> None:
-    git("checkout", "-f", "HEAD")
-    # Untracked files only; ignored build output stays so rebuilds remain incremental.
-    git("clean", "-fd")
+    # The submodule's Git directory can live outside this worktree. Restore files with a
+    # temporary index here, without writing shared Git metadata or moving HEAD.
+    with tempfile.TemporaryDirectory(prefix=".orb-reset-", dir=ROOT) as directory:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(directory) / "index")}
+        for args in (("read-tree", "HEAD"), ("checkout-index", "--all", "--force"),
+                     ("clean", "-fd")):
+            subprocess.run(["git", "-C", str(APP), *args], env=env, check=True,
+                           capture_output=True, text=True)
 
 
 def main() -> int:

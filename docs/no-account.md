@@ -2,7 +2,7 @@
 
 Orb cannot sign in to a Core Devices account. This page lists what that account
 does in Core's Pebble app and what Orb offers instead. Each entry was checked
-against Core's code. A change to Orb that costs users something adds its entry
+against Core's 2.0.0 code. A change to Orb that costs users something adds its entry
 here in the same commit.
 
 Core's app signs every user in to an anonymous account at first start. Users can
@@ -85,9 +85,11 @@ which ships only as a prebuilt binary. What remains:
 
 **Support chat and bug reports to Core.** Core's in-app support chat, its bug
 report upload and the replies it pushes to the phone all use your Core account.
-Orb removes them. Under Get Help, Share Logs saves the app and watch logs to a
-file. Check what is in it, then attach it to an issue on Orb's GitHub page. Core
-does not support Orb.
+Orb removes them, including 2.0.0's voice-triggered report upload. Under Get
+Help, Share Logs saves the app and watch logs to a file. It includes local
+per-app network usage from the last seven days and up to 100 recent watch-setting
+changes made by apps. Check what is in it, then attach it to an issue on Orb's
+GitHub page. Core does not support Orb.
 
 **Messaging an app's developer.** Core's store sends your message to the
 developer through Core, as your account (`ContactDeveloperApi`). Orb removes it.
@@ -139,3 +141,16 @@ a new phone.
 **"What's new" and the getting-started guide.** Neither needed an account. Orb
 removes them because they describe Core's app. Orb's changes are listed with each
 release on GitHub. Core's guide is still at `help.repebble.com` in a browser.
+
+**Language packs.** No account is needed. Core's 2.0.0 app and Orb fetch the catalog
+from the `coredevices/pebbleos-translations` releases on GitHub and cache it on the
+phone. Each download must match the catalog's size and SHA-256. The catalog has
+no separate signature; see [README's network list](../README.md#network-and-privacy)
+for its hosts and trust limits.
+
+Updating from 1.18.0.1-orb2 keeps stores, locker ownership and watch data.
+`coreapp.db` moves from v11 to Orb v12, deleting only the four removed telemetry
+and sync tables. An install that already had commit `4e3b3ec` stays at the same
+v12 schema. Separately, `libpebble3.db` follows Core's v51 → v52 → v53 → v54
+migrations, adding local usage/action history and carrying microphone grants into
+watch permission bits. See [the port report](port-2.0.0.md) for validation details.

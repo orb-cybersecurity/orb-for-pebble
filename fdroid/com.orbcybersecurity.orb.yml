@@ -41,6 +41,19 @@ Builds:
       - third_party/kotlin-speex/library/test-data
     ndk: r28b
 
+  - versionName: 2.0.0-orb1
+    versionCode: 200000001
+    commit: 2.0.0-orb1
+    subdir: mobileapp/androidApp
+    submodules: true
+    gradle:
+      - yes
+    prebuild: python3 ../../apply.py
+    scandelete:
+      - third_party/kotlin-speex/library/build.gradle.kts
+      - third_party/kotlin-speex/library/test-data
+    ndk: r28b
+
 MaintainerNotes: |-
   The repository holds no copy of Core's source. mobileapp/ is Core's repository as a
   submodule, pinned to a release tag, and apply.py turns it into Orb: it copies overlay/ over
@@ -57,11 +70,12 @@ MaintainerNotes: |-
   prebuilt AAR. scandelete removes that project's own build file, which Orb does not use, and
   its test recording.
 
-  Cleartext traffic stays allowed as in Core's app: watch apps' JavaScript makes HTTP requests
-  through the phone, and many existing watch apps use plain-HTTP endpoints.
+  Cleartext traffic is blocked for Orb, watchapps and their settings pages. Android backup
+  copies databases, settings and sideloaded watchapps through encrypted backup services or
+  device transfer; caches, logs and plugin encryption keys stay on the phone.
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^[0-9.]+-orb[0-9]+$
 UpdateCheckData: version.properties|versionCode=(\d+)|.|versionName=(.+)
-CurrentVersion: 1.18.0.1-orb1
-CurrentVersionCode: 118000011
+CurrentVersion: 2.0.0-orb1
+CurrentVersionCode: 200000001

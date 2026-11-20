@@ -413,9 +413,7 @@ fun WatchHomeScreen(
             )
         )
         var hasSeenWatchOnboarding by remember { mutableStateOf(settings.hasSeenWatchOnboarding())}
-        val pluginsEnabled = libPebble.config.collectAsState().value.watchConfig.enablePlugins
-        // Re-read when plugins are switched, because switching them off resets it.
-        var hasSeenPermissionsIntro by remember(pluginsEnabled) { mutableStateOf(settings.hasSeenPermissionsIntro()) }
+        var hasSeenPermissionsIntro by remember { mutableStateOf(settings.hasSeenPermissionsIntro()) }
         var startingOnboarding = false
         if (watches.any { it is CommonConnectedDevice } && !hasSeenWatchOnboarding) {
             hasSeenWatchOnboarding = true
@@ -424,7 +422,7 @@ fun WatchHomeScreen(
             startingOnboarding = true
         }
         // Watch onboarding shows this itself, so only people past it get the dialog.
-        if (!startingOnboarding && hasSeenWatchOnboarding && pluginsEnabled &&
+        if (!startingOnboarding && hasSeenWatchOnboarding &&
             !hasSeenPermissionsIntro
         ) {
             PermissionsIntroDialog(onDismissRequest = {
