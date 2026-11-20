@@ -91,6 +91,7 @@ mv "dist/.orb-$VERSION.apk.part" "dist/orb-$VERSION.apk"
 APK="dist/orb-$VERSION.apk"
 {
   echo "version: $VERSION"
+  echo "commit: $(git rev-parse HEAD)"
   echo "package: $PKG"
   echo "file: $(basename "$APK")"
   echo "size: $(stat -c %s "$APK") bytes"

@@ -124,14 +124,14 @@ Settings → Debug after turning on "Show debug options".
 service, where signing in is optional (`Cohorts.kt`).
 
 **Installing apps and watchfaces.** Browsing, searching and installing from
-Core's and Rebble's stores work without any account. Signed in to Rebble,
-installs from the Rebble store are also added to your Rebble locker. You can also
-open a `.pbw` file from a file manager or a download. Orb names the app before
-anything is installed.
+Core's Pebble store works without any account. The Rebble store requires a free
+Rebble sign-in before it can be enabled; its installs are also added to your Rebble
+locker. You can also open a `.pbw` file from a file manager or a download. Orb
+names the app before anything is installed.
 
 **PebbleKit companions.** Orb requires a persisted PebbleKit2 companion declaration
-before exposing watches or allowing app control, including through classic PebbleKit.
-Classic apps without that declaration are incompatible. Classic start/stop also needs
+and the user's PebbleKit2 grant before exposing watches or allowing app control,
+including through classic PebbleKit. Classic apps without that declaration are incompatible. Classic start/stop also needs
 Android 14 or newer and a sender that shares its identity; communication requires the
 user's permission. PBW cache eviction does not remove a declaration.
 

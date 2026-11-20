@@ -30,8 +30,8 @@ System/offline dictation is not yet available on GrapheneOS. Rebble dictation
 works with a Rebble subscription. Other Android systems need Android 13 or newer
 and a speech recognizer that accepts recorded audio for system dictation.
 
-The watchface and app store works without an account: browsing the Pebble and
-Rebble stores, searching, and installing to the watch all work.
+The Pebble app store works without an account: browsing, searching and installing
+to the watch all work. The Rebble store requires a free Rebble sign-in.
 [docs/no-account.md](docs/no-account.md) lists what a Core account would add, what
 Orb offers instead, and how to move Orb to a new phone with Android's backup.
 
@@ -81,8 +81,8 @@ The launcher label is **Orb**. The application ID is `com.orbcybersecurity.orb`.
   update through Rebble. A version can be pinned under Settings → Debug after
   enabling "Show debug options".
 - **PebbleKit companions:** Providers and app control require a stored PebbleKit2
-  companion declaration. Classic PebbleKit apps without one cannot see watches or
-  control them. Classic start/stop also needs Android 14 or newer and a sender that
+  companion declaration and the user's PebbleKit2 grant. Classic PebbleKit apps
+  without one cannot see watches or control them. Classic start/stop also needs Android 14 or newer and a sender that
   shares its identity. Communication still requires the user's permission.
 - **Dictation:** Orb uses the phone's selected speech recognition service.
   System/offline dictation is not yet available on GrapheneOS. Rebble dictation
@@ -101,14 +101,27 @@ published SHA-256 too.
 
 ## Network and privacy
 
-Watchapps' XHR and `fetch()` requests always go through Orb's permission checks
-and redirect checks. The debug toggle for sending PKJS requests through the
-WebView has been removed; saved choices are migrated automatically. Settings
-pages use the same live checks for WebSockets and close when a network permission
-is revoked, stopping the page's active connections. Reopen settings after changing
-its permissions.
+Watchapps' ordinary XHR and `fetch()` requests use Orb's permission and redirect
+checks. Core's retained compatibility interceptors run before those checks:
 
-Orb itself contacts only these services:
+- With weather interception enabled (the default), supported OpenWeatherMap
+  `/data/2.5/weather` and Yahoo `query.yahooapis.com/v1/public/yql` requests skip
+  the watchapp Internet permission check, even when access is denied.
+  OpenWeatherMap requests first send the app's key and requested coordinates to
+  `api.openweathermap.org`; a 401 response falls back to Core's weather service.
+  Yahoo forecasts use Core's weather service; supported location lookups use the
+  phone's geocoder.
+- Timeline pin emulation handles legacy pin requests locally. Adding pins
+  requires timeline permission.
+
+PKJS browser resources load only from Orb's bundled assets. The debug toggle for
+sending PKJS requests through the WebView has been removed; saved choices are
+migrated automatically. Settings pages use live permission checks for WebSockets
+and close when a network permission is revoked, stopping the page's active
+connections. Reopen settings after changing its permissions.
+
+Built-in services contact these hosts; watchapps and custom store sources can
+also contact their configured hosts:
 
 - **Rebble:** sign-in configuration (`boot.rebble.io`), the Rebble app store
   (`appstore-api.rebble.io`), app downloads and images (`binaries.rebble.io`,
@@ -121,8 +134,9 @@ Orb itself contacts only these services:
   using that store's public search-only keys.
 - **Core's weather service** (`weather-api.repebble.com`) while weather is on, which
   it is by default. It receives the coordinates of each weather location. Watch apps
-  that ask OpenWeatherMap's or Yahoo's old weather APIs are answered from the same
-  service, with the coordinates they ask about.
+  that ask Yahoo's old weather API are answered from this service, with the
+  coordinates they ask about. OpenWeatherMap 2.5 requests contact
+  `api.openweathermap.org` first, falling back to Core's service on a 401 response.
 - **GitHub** (`api.github.com`, `github.com` and their release-download hosts,
   including `release-assets.githubusercontent.com`), for firmware releases for
   Core watches and the language-pack manifest at

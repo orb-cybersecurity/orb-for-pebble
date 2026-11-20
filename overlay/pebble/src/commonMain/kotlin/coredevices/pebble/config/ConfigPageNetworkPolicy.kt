@@ -15,7 +15,7 @@ internal fun configPageCsp(domains: List<String>?, expectedUrl: String): String 
     val resources = (sources + listOfNotNull(configPageOrigin(expectedUrl))).distinct().joinToString(" ")
     val connect = sources.ifEmpty { listOf("'none'") }.joinToString(" ")
     return "default-src $resources 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src $connect; " +
-        "frame-src ${resources.ifEmpty { "'none'" }}; worker-src 'none'; object-src 'none'; " +
+        "frame-src 'none'; worker-src 'none'; object-src 'none'; " +
         "form-action ${resources.ifEmpty { "'none'" }} pebblejs:"
 }
 

@@ -5,6 +5,7 @@ import kotlinx.io.Source
 import kotlinx.io.readString
 
 internal const val MAX_ZIP_JSON_BYTES = 1L shl 20
+internal const val MAX_PKJS_BYTES = 4L shl 20
 internal const val MAX_ZIP_TEXT_BYTES = 8L shl 20
 
 /** Limit actual inflated bytes before making a String, regardless of ZIP entry size claims. */

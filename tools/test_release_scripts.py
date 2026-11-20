@@ -1,7 +1,6 @@
-"""Offline checks of release identity guards and the source-upgrade SQL."""
+"""Offline checks of release identity guards and stored source preservation."""
 import os
 import re
-import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -41,21 +40,29 @@ class ReleaseIdentityTest(unittest.TestCase):
         self.assertIn('differs from version.properties', result.stderr)
 
 
-class SourceUpgradeTest(unittest.TestCase):
-    def test_upgrade_preserves_ids_and_settings_and_runs_once_per_http_row(self):
-        source = ROOT / 'mobileapp/util/src/commonMain/kotlin/coredevices/database/AppstoreSource.kt'
-        query = re.search(r'@Query\("(UPDATE AppstoreSource SET url = .*?)"\)', source.read_text())[1]
-        with sqlite3.connect(':memory:') as db:
-            db.execute('CREATE TABLE AppstoreSource(id INTEGER PRIMARY KEY, url TEXT, title TEXT, enabled INTEGER, algoliaApiKey TEXT)')
-            rows = [(7, 'http://custom.example/api', 'custom', 0, None),
-                    (8, 'https://secure.example/api', 'secure', 1, 'keep'),
-                    (9, 'HTTP://old.example/api', 'old', 1, None)]
-            db.executemany('INSERT INTO AppstoreSource VALUES (?, ?, ?, ?, ?)', rows)
-            self.assertEqual(2, db.execute(query).rowcount)
-            self.assertEqual([(7, 'https://custom.example/api', 'custom', 0, None), rows[1],
-                              (9, 'https://old.example/api', 'old', 1, None)],
-                             db.execute('SELECT * FROM AppstoreSource ORDER BY id').fetchall())
-            self.assertEqual(0, db.execute(query).rowcount)
+class SourcePreservationTest(unittest.TestCase):
+    def test_source_initializer_does_not_rewrite_http_ownership_urls(self):
+        dao = ROOT / 'mobileapp/util/src/commonMain/kotlin/coredevices/database/AppstoreSource.kt'
+        initializer = ROOT / 'mobileapp/pebble/src/commonMain/kotlin/coredevices/pebble/services/AppstoreSources.kt'
+        self.assertNotIn('upgradeHttpSources', dao.read_text() + initializer.read_text())
+        self.assertNotRegex(dao.read_text(), r'UPDATE AppstoreSource SET url')
+        web = ROOT / 'mobileapp/pebble/src/commonMain/kotlin/coredevices/pebble/services/PebbleWebServices.kt'
+        self.assertIn('.filter { validSourceUrl(it.url) }', web.read_text())
+
+
+class BuildCommitTest(unittest.TestCase):
+    def test_missing_or_different_build_commit_is_refused_before_network(self):
+        script = (ROOT / 'tools/github_release.sh').read_text()
+        guard = next(line for line in script.splitlines() if 'field commit' in line)
+        self.assertLess(script.index(guard), script.index('gh auth status'))
+        self.assertIn('echo "commit: $(git rev-parse HEAD)"', (ROOT / 'tools/release_build.sh').read_text())
+        for built, expected in [('', 1), ('old', 1), ('tag-commit', 0)]:
+            with self.subTest(built=built):
+                harness = 'field() { printf "%s" "$BUILT"; }; die() { echo "$*" >&2; exit 1; }; COMMIT=tag-commit; APK=test.apk\n'
+                result = subprocess.run(['bash', '-c', harness + guard], env={**os.environ, 'BUILT': built},
+                                        capture_output=True, text=True)
+                self.assertEqual(expected, result.returncode)
+                if expected: self.assertIn('built from another commit', result.stderr)
 
 
 if __name__ == '__main__':

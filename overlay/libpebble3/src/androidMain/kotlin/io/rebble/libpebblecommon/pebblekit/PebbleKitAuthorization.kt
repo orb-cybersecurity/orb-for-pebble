@@ -21,11 +21,16 @@ internal object PebbleKitAuthorization : LibPebbleKoinComponent {
             getKoin().get<AppPermissions>().request(uuid, pebbleKit2Key(pkg)) == PermissionDecision.Granted
         }
 
+    suspend fun granted(callers: Collection<String>, uuid: Uuid): Boolean =
+        authorizedCompanion(callers, packages(uuid)) { pkg ->
+            getKoin().get<AppPermissions>().check(uuid, pebbleKit2Key(pkg)) == PermissionDecision.Granted
+        }
+
     suspend fun associated(callers: Collection<String>): Boolean {
         if (callers.isEmpty()) return false
         val locker = getKoin().getOrNull<Locker>() ?: return false
         return locker.getAllLockerUuids().first().any { uuid ->
-            authorizedCompanion(callers, packages(uuid)) { true }
+            granted(callers, uuid)
         }
     }
 }

@@ -34,6 +34,8 @@ ACTUAL_CERT=$(orb_apk_certificate "$APK") || die "unexpected signing certificate
 [ "$(sha256sum "$APK" | cut -d' ' -f1)" = "$SHA" ] || die "$APK no longer matches $TXT"
 COMMIT=$(git rev-parse --verify -q "refs/tags/$VERSION^{commit}") || die "no local tag $VERSION"
 
+[ "$(field commit)" = "$COMMIT" ] || die "$APK was built from another commit"
+
 # The tag, checkout and notes must describe the same release before contacting GitHub.
 TAG_PROPERTIES=$(git show "$COMMIT:version.properties") || die "tag has no version.properties"
 [ "$(sed -n 's/^versionName=//p' <<<"$TAG_PROPERTIES")" = "$VERSION" ] || die "tag version mismatch"

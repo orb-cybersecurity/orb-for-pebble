@@ -26,7 +26,7 @@ class ConfigPageNetworkPolicyTest {
     @Test fun ownOriginAndNavigationSurviveARestrictedResourcePolicy() {
         val page = "https://config.example:8443/settings"
         val csp = configPageCsp(listOf("api.example"), page)
-        assertTrue("frame-src https://api.example https://*.api.example http://api.example http://*.api.example https://config.example:8443;" in csp)
+        assertTrue("frame-src 'none';" in csp)
         assertTrue("form-action " in csp && "https://config.example:8443 pebblejs:" in csp)
         assertTrue(configPageMayUseBridge(page, "https://config.example:8443", true, "$page/next"))
         assertFalse(configPageMayUseBridge(page, "https://api.example", true, page))
