@@ -2943,11 +2943,9 @@ import io.rebble.libpebblecommon.connection.ConnectedPebbleDevice\
 """,
         """\
 ) : NetworkAccess {
+    // This app's statuses already follow its rows, the policy, plugin definitions and its subject.
     override fun changes(): kotlinx.coroutines.flow.Flow<Unit> =
-        kotlinx.coroutines.flow.merge(
-            permissions.permissionDecisions().map { Unit },
-            permissions.statuses(appUuid).map { Unit },
-        )
+        permissions.statuses(appUuid).map { }
 """,
     )
     replace_literal(
